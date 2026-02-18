@@ -6,10 +6,14 @@ requires-python = ">=3.10"
 dependencies = [
     "zendriver>=0.14.0",
     "mcp>=1.0.0",
+    "Pillow",
 ]
 
 [project.scripts]
 zendriver-mcp = "src.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 [build-system]
 requires = ["hatchling"]

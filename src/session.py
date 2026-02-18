@@ -12,6 +12,7 @@ from src.errors import BrowserNotStartedError, PageNotLoadedError
 class BrowserSession:
     """Singleton class to manage browser session across all tool calls."""
 
+    default_browser_path: Optional[str] = None
     _instance: "BrowserSession | None" = None
     _browser: zd.Browser | None = None
     _page: zd.Tab | None = None
@@ -71,7 +72,8 @@ class BrowserSession:
         headless: bool = False,
         user_data_dir: Optional[str] = None,
         proxy: Optional[str] = None,
-        browser_args: Optional[List[str]] = None
+        browser_args: Optional[List[str]] = None,
+        browser_executable_path: Optional[str] = None
     ) -> zd.Browser:
         """Start the browser with configuration."""
         if self._browser is None:
@@ -80,10 +82,12 @@ class BrowserSession:
             if proxy:
                 args.append(f"--proxy-server={proxy}")
 
+            exe = browser_executable_path or self.default_browser_path
             self._browser = await zd.start(
                 headless=headless,
                 user_data_dir=user_data_dir,
-                browser_args=args if args else None
+                browser_args=args if args else None,
+                browser_executable_path=exe
             )
 
             # Clear state on new session
