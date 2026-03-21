@@ -28,8 +28,28 @@ Most browser automation tools (Selenium, Playwright, Puppeteer) use WebDriver pr
 - **Smart Element Handling** - Auto-skips hidden elements, provides selector suggestions
 - **CDP Network Logging** - Real-time network request and console log capture, its super easy to create endpoint based scrappers as llms can directly access the network logs
 - **Security Auditing** - Comprehensive security analysis tool
+- **Authenticated Proxy Support** - HTTP and SOCKS5 proxies with credentials handled via CDP Fetch domain
 
 
+
+## Proxy Support
+
+Full support for authenticated HTTP and SOCKS5 proxies. Credentials are handled transparently via CDP Fetch domain — no proxy extensions needed.
+
+```python
+# No auth
+start_browser(proxy="socks5://host:port")
+
+# With authentication (HTTP or SOCKS5)
+start_browser(proxy="http://user:pass@host:port")
+```
+
+How it works under the hood:
+- Credentials are stripped from the URL before passing to Chrome's `--proxy-server` flag (Chrome doesn't support embedded credentials)
+- CDP `Fetch.enable(handle_auth_requests=True)` intercepts 407 Proxy Authentication challenges
+- `Fetch.authRequired` handler responds with stored credentials automatically
+- `Fetch.requestPaused` handler continues non-auth requests transparently
+- `cdp.fetch` is pre-added to `tab.enabled_domains` to prevent zendriver's auto-registration from overriding the auth config
 
 ## Usage with Claude Desktop
 
