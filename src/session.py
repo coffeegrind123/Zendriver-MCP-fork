@@ -113,6 +113,14 @@ class BrowserSession:
             self._tabs = {}
             self._tab_counter = 0
 
+            # Set up CDP listeners on initial tab (needed for proxy auth before first navigate)
+            main_tab = self._browser.main_tab
+            if main_tab:
+                self._page = main_tab
+                await self._setup_cdp_listeners(main_tab)
+                self._tab_counter += 1
+                self._tabs[f"tab_{self._tab_counter}"] = main_tab
+
         return self._browser
 
     async def stop(self) -> None:
