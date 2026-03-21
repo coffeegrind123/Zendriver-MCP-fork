@@ -5,6 +5,7 @@ import zendriver as zd
 from zendriver import cdp
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+from urllib.parse import urlparse
 
 from src.errors import BrowserNotStartedError, PageNotLoadedError
 
@@ -22,6 +23,8 @@ class BrowserSession:
     _console_logs: List[Dict[str, Any]] = []
     _pending_requests: Dict[str, Dict[str, Any]] = {}
     _cdp_enabled_tabs: Dict[int, bool] = {}  # Track tabs with CDP listeners
+    _proxy_username: Optional[str] = None
+    _proxy_password: Optional[str] = None
 
     def __new__(cls) -> "BrowserSession":
         if cls._instance is None:
@@ -80,7 +83,20 @@ class BrowserSession:
             args = browser_args or []
 
             if proxy:
-                args.append(f"--proxy-server={proxy}")
+                parsed = urlparse(proxy)
+                if parsed.username:
+                    self._proxy_username = parsed.username
+                    self._proxy_password = parsed.password or ''
+                else:
+                    self._proxy_username = None
+                    self._proxy_password = None
+                proxy_host = parsed.hostname or ''
+                proxy_port = parsed.port or 8080
+                scheme = parsed.scheme or 'http'
+                if scheme == 'socks5':
+                    args.append(f"--proxy-server=socks5://{proxy_host}:{proxy_port}")
+                else:
+                    args.append(f"--proxy-server={proxy_host}:{proxy_port}")
 
             exe = browser_executable_path or self.default_browser_path
             self._browser = await zd.start(
@@ -123,6 +139,13 @@ class BrowserSession:
 
             # Enable Runtime domain for console
             await tab.send(cdp.runtime.enable())
+
+            # Enable Fetch domain for proxy auth if credentials are set
+            if self._proxy_username:
+                await tab.send(cdp.fetch.enable(
+                    handle_auth_requests=True
+                ))
+                tab.add_handler(cdp.fetch.AuthRequired, self._on_fetch_auth_required)
 
             # Add event handlers
             tab.add_handler(cdp.network.RequestWillBeSent, self._on_request_sent)
@@ -209,6 +232,22 @@ class BrowserSession:
         # Keep only last 500 entries
         if len(self._console_logs) > 500:
             self._console_logs = self._console_logs[-500:]
+
+    async def _on_fetch_auth_required(self, event: cdp.fetch.AuthRequired) -> None:
+        """Handle proxy authentication challenges."""
+        try:
+            tab = self._page
+            if tab and self._proxy_username:
+                await tab.send(cdp.fetch.continue_with_auth(
+                    request_id=event.request_id,
+                    auth_challenge_response=cdp.fetch.AuthChallengeResponse(
+                        response="ProvideCredentials",
+                        username=self._proxy_username,
+                        password=self._proxy_password or ''
+                    )
+                ))
+        except Exception:
+            pass
 
     async def navigate(self, url: str, new_tab: bool = False) -> zd.Tab:
         """Navigate to a URL."""

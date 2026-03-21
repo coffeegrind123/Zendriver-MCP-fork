@@ -1,5 +1,6 @@
 # element interaction tools - click, type, clear, focus, select, upload
 from typing import Optional
+from zendriver import cdp
 
 from src.tools.base import ToolBase
 from src.errors import ElementNotFoundError
@@ -54,7 +55,7 @@ class ElementTools(ToolBase):
         # Now insert text via CDP
         # `self._tab` refers to the current Tab object,
         # which exposes the CDP command interface
-        await self._tab.cdp.input_.insert_text(text)
+        await self.session.page.send(cdp.input_.insert_text(text))
 
         return f"Typed into {selector}"
 
