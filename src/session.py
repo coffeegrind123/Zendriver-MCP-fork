@@ -113,6 +113,17 @@ class BrowserSession:
             self._tabs = {}
             self._tab_counter = 0
 
+            # Monkey-patch zendriver's Transaction.__call__ to handle InvalidStateError
+            # This bug crashes the listener loop and prevents CDP events from being received
+            from zendriver.core.connection import Transaction
+            _orig_call = Transaction.__call__
+            def _safe_call(self_tx, **message):
+                try:
+                    return _orig_call(self_tx, **message)
+                except asyncio.InvalidStateError:
+                    pass
+            Transaction.__call__ = _safe_call
+
             # Set up CDP listeners on initial tab (needed for proxy auth before first navigate)
             main_tab = self._browser.main_tab
             if main_tab:
@@ -151,9 +162,13 @@ class BrowserSession:
             # Enable Fetch domain for proxy auth if credentials are set
             if self._proxy_username:
                 await tab.send(cdp.fetch.enable(
-                    handle_auth_requests=True
+                    handle_auth_requests=True,
+                    patterns=[cdp.fetch.RequestPattern(url_pattern='*')]
                 ))
+                if cdp.fetch not in tab.enabled_domains:
+                    tab.enabled_domains.append(cdp.fetch)
                 tab.add_handler(cdp.fetch.AuthRequired, self._on_fetch_auth_required)
+                tab.add_handler(cdp.fetch.RequestPaused, self._on_fetch_request_paused)
 
             # Add event handlers
             tab.add_handler(cdp.network.RequestWillBeSent, self._on_request_sent)
@@ -241,12 +256,21 @@ class BrowserSession:
         if len(self._console_logs) > 500:
             self._console_logs = self._console_logs[-500:]
 
-    async def _on_fetch_auth_required(self, event: cdp.fetch.AuthRequired) -> None:
+    async def _on_fetch_request_paused(self, event: cdp.fetch.RequestPaused, connection=None) -> None:
+        """Continue paused requests (non-auth). Required when Fetch patterns are active."""
+        try:
+            target = connection or self._page
+            if target:
+                await target.send(cdp.fetch.continue_request(request_id=event.request_id))
+        except Exception:
+            pass
+
+    async def _on_fetch_auth_required(self, event: cdp.fetch.AuthRequired, connection=None) -> None:
         """Handle proxy authentication challenges."""
         try:
-            tab = self._page
-            if tab and self._proxy_username:
-                await tab.send(cdp.fetch.continue_with_auth(
+            target = connection or self._page
+            if target and self._proxy_username:
+                await target.send(cdp.fetch.continue_with_auth(
                     request_id=event.request_id,
                     auth_challenge_response=cdp.fetch.AuthChallengeResponse(
                         response="ProvideCredentials",
