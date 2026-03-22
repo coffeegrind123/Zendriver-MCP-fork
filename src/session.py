@@ -82,6 +82,20 @@ class BrowserSession:
         if self._browser is None:
             args = browser_args or []
 
+            import os, zipfile, urllib.request, json
+            ext_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "extensions", "ublock")
+            if not os.path.isdir(ext_dir):
+                os.makedirs(os.path.dirname(ext_dir), exist_ok=True)
+                zip_path = ext_dir + ".zip"
+                meta = json.loads(urllib.request.urlopen("https://api.github.com/repos/gorhill/uBlock/releases/latest").read())
+                url = next(a["browser_download_url"] for a in meta["assets"] if a["name"].endswith(".chromium.zip"))
+                urllib.request.urlretrieve(url, zip_path)
+                with zipfile.ZipFile(zip_path, "r") as z:
+                    z.extractall(os.path.dirname(ext_dir))
+                os.rename(os.path.join(os.path.dirname(ext_dir), "uBlock0.chromium"), ext_dir)
+                os.remove(zip_path)
+            args.append("--load-extension=" + ext_dir)
+
             if proxy:
                 parsed = urlparse(proxy)
                 if parsed.username:
