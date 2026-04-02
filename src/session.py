@@ -117,7 +117,8 @@ class BrowserSession:
                 headless=headless,
                 user_data_dir=user_data_dir,
                 browser_args=args if args else None,
-                browser_executable_path=exe
+                browser_executable_path=exe,
+                sandbox=False
             )
 
             # Clear state on new session
