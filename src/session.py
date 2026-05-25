@@ -76,19 +76,22 @@ class BrowserSession:
         user_data_dir: Optional[str] = None,
         proxy: Optional[str] = None,
         browser_args: Optional[List[str]] = None,
-        browser_executable_path: Optional[str] = None
+        browser_executable_path: Optional[str] = None,
+        low_memory: bool = False
     ) -> zd.Browser:
         """Start the browser with configuration."""
         if self._browser is None:
             args = list(browser_args or [])
 
-            # Root/container-friendly defaults. Docker's default /dev/shm is tiny
-            # (often 64M) which crashes Chrome's renderer -> --disable-dev-shm-usage.
-            # No GPU under Xvfb, and skip first-run prompts that delay the debug port.
-            for _a in ("--disable-dev-shm-usage", "--disable-gpu",
-                       "--no-first-run", "--no-default-browser-check"):
-                if _a not in args:
-                    args.append(_a)
+            # Opt-in only: these are needed on root/container hosts (tiny /dev/shm
+            # crashes Chrome's renderer; no GPU under Xvfb) but they're DETECTABLE
+            # as automation (software WebGL etc.), so they stay off by default and
+            # the caller enables them per-launch via low_memory.
+            if low_memory:
+                for _a in ("--disable-dev-shm-usage", "--disable-gpu",
+                           "--no-first-run", "--no-default-browser-check"):
+                    if _a not in args:
+                        args.append(_a)
 
             import os, zipfile, urllib.request, json
             ext_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "extensions", "ublock")
