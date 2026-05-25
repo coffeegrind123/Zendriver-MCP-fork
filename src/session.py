@@ -80,7 +80,15 @@ class BrowserSession:
     ) -> zd.Browser:
         """Start the browser with configuration."""
         if self._browser is None:
-            args = browser_args or []
+            args = list(browser_args or [])
+
+            # Root/container-friendly defaults. Docker's default /dev/shm is tiny
+            # (often 64M) which crashes Chrome's renderer -> --disable-dev-shm-usage.
+            # No GPU under Xvfb, and skip first-run prompts that delay the debug port.
+            for _a in ("--disable-dev-shm-usage", "--disable-gpu",
+                       "--no-first-run", "--no-default-browser-check"):
+                if _a not in args:
+                    args.append(_a)
 
             import os, zipfile, urllib.request, json
             ext_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "extensions", "ublock")
@@ -118,7 +126,11 @@ class BrowserSession:
                 user_data_dir=user_data_dir,
                 browser_args=args if args else None,
                 browser_executable_path=exe,
-                sandbox=False
+                sandbox=False,
+                # Slow container Chrome can take several seconds to open the CDP
+                # port; zendriver's default (0.25s x 10 = 2.5s) gives up too early.
+                browser_connection_timeout=1.0,
+                browser_connection_max_tries=40,
             )
 
             # Clear state on new session
