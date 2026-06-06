@@ -18,7 +18,9 @@ class BrowserTools(ToolBase):
         headless: bool = False,
         proxy: Optional[str] = None,
         user_data_dir: Optional[str] = None,
-        low_memory: bool = False
+        low_memory: bool = False,
+        window_size: Optional[str] = None,
+        device_scale_factor: Optional[float] = None
     ) -> str:
         """Start the browser with configuration options.
 
@@ -29,10 +31,30 @@ class BrowserTools(ToolBase):
             WARNING: these flags are detectable as automation (software WebGL,
             etc.) — leave False (default) when stealth matters (anti-bot /
             Cloudflare-protected sites). The agent decides per launch.
+        window_size: viewport size as "WIDTHxHEIGHT" (e.g. "1440x900") or
+            "WIDTH,HEIGHT". Without it Chrome uses its headless default
+            (~800x600), which is why screenshots come out small. Set this for
+            larger captures. Applied as the launch --window-size flag.
+        device_scale_factor: device pixel ratio (e.g. 2 for retina-quality,
+            crisp screenshots). Applied as --force-device-scale-factor; the
+            captured image is window_size * device_scale_factor pixels.
         """
+        browser_args = []
+        if window_size:
+            w, _, h = window_size.replace(",", "x").partition("x")
+            try:
+                browser_args.append(f"--window-size={int(w.strip())},{int(h.strip())}")
+            except ValueError:
+                raise ValueError(
+                    f"Invalid window_size {window_size!r}; expected 'WIDTHxHEIGHT' (e.g. '1440x900')"
+                )
+        if device_scale_factor:
+            browser_args.append(f"--force-device-scale-factor={device_scale_factor}")
+
         await self.session.start(
             headless=headless, proxy=proxy, user_data_dir=user_data_dir,
-            low_memory=low_memory
+            low_memory=low_memory,
+            browser_args=browser_args or None
         )
 
         # build response message
@@ -44,6 +66,10 @@ class BrowserTools(ToolBase):
             extras.append(f"profile={user_data_dir}")
         if low_memory:
             extras.append("low_memory")
+        if window_size:
+            extras.append(f"window={window_size}")
+        if device_scale_factor:
+            extras.append(f"scale={device_scale_factor}")
         extra_info = f" ({', '.join(extras)})" if extras else ""
         return f"Browser started in {mode} mode{extra_info}"
 
