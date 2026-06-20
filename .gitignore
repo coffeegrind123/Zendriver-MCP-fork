@@ -5,4 +5,5 @@ __pycache__/
 .venv/
 .env
 .claude
-.mcp.jsonextensions/
+.mcp.json
+extensions/

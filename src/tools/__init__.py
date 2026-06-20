@@ -12,6 +12,7 @@ from src.tools.storage import StorageTools
 from src.tools.logging import LoggingTools
 from src.tools.forms import FormTools
 from src.tools.utils import UtilityTools
+from src.tools.stealth import StealthTools
 
 # initialize the MCP server
 mcp = FastMCP("Zendriver MCP")
@@ -27,6 +28,7 @@ _storage_tools = StorageTools(mcp)
 _logging_tools = LoggingTools(mcp)
 _form_tools = FormTools(mcp)
 _utility_tools = UtilityTools(mcp)
+_stealth_tools = StealthTools(mcp)
 
 # export individual tool functions for backwards compatibility
 # browser lifecycle

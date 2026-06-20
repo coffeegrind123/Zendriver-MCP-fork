@@ -1,12 +1,27 @@
 # base class for all tool modules
+import asyncio
+import functools
+import inspect
+import os
 import time
 from abc import ABC
-from typing import Any, Callable
+from typing import Any, Callable, Coroutine
 
 from mcp.server.fastmcp import FastMCP
 
 from src.session import BrowserSession
-from src.errors import ElementNotFoundError
+from src.errors import ElementNotFoundError, ToolTimeoutError
+
+
+def _default_tool_timeout() -> float:
+    raw = os.environ.get("ZENDRIVER_MCP_TOOL_TIMEOUT", "120")
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return 120.0
+
+
+DEFAULT_TOOL_TIMEOUT = _default_tool_timeout()
 
 
 class ToolBase(ABC):
@@ -20,6 +35,32 @@ class ToolBase(ABC):
     def _register_tools(self) -> None:
         """override in subclasses to register tools with mcp"""
         pass
+
+    def _register(
+        self,
+        fn: "Callable[..., Coroutine[Any, Any, Any]]",
+        timeout: float | None = None,
+    ) -> None:
+        """Register ``fn`` as an MCP tool, guarded by a time budget so one hung CDP call
+        can never freeze the whole MCP session. Budget defaults to DEFAULT_TOOL_TIMEOUT
+        (120s, or $ZENDRIVER_MCP_TOOL_TIMEOUT); override per slow tool. (Ported from bituq.)"""
+        budget = float(timeout) if timeout is not None else DEFAULT_TOOL_TIMEOUT
+        name = fn.__name__
+
+        @functools.wraps(fn)
+        async def guarded(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return await asyncio.wait_for(fn(*args, **kwargs), timeout=budget)
+            except asyncio.TimeoutError as exc:
+                raise ToolTimeoutError(name, budget) from exc
+
+        # Preserve the signature so FastMCP introspects the right schema, and drop
+        # __wrapped__ so it doesn't follow back to the unbound function (exposing `self`).
+        guarded.__signature__ = inspect.signature(fn)  # type: ignore[attr-defined]
+        if hasattr(guarded, "__wrapped__"):
+            delattr(guarded, "__wrapped__")
+        guarded.__zendriver_timeout__ = budget  # type: ignore[attr-defined]
+        self._mcp.tool()(guarded)
 
     @property
     def session(self) -> BrowserSession:

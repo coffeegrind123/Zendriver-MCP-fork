@@ -143,16 +143,11 @@ class BrowserSession:
             self._tabs = {}
             self._tab_counter = 0
 
-            # Monkey-patch zendriver's Transaction.__call__ to handle InvalidStateError
-            # This bug crashes the listener loop and prevents CDP events from being received
-            from zendriver.core.connection import Transaction
-            _orig_call = Transaction.__call__
-            def _safe_call(self_tx, **message):
-                try:
-                    return _orig_call(self_tx, **message)
-                except asyncio.InvalidStateError:
-                    pass
-            Transaction.__call__ = _safe_call
+            # Harden zendriver's Transaction.__call__ against parser/enum version skew so a
+            # CDP response that fails to parse (new Chrome enum value, etc.) resolves the
+            # caller's future with a typed error instead of hanging it forever. This supersedes
+            # the older InvalidStateError-only patch. See src/compat.py.
+            from src import compat  # noqa: F401  (idempotent, applies patch on import)
 
             # Set up CDP listeners on initial tab (needed for proxy auth before first navigate)
             main_tab = self._browser.main_tab
