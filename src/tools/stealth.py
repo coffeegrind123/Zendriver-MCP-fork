@@ -12,6 +12,9 @@ an interactive challenge even headed. (Ported from bituq/zendriver-mcp.)
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from zendriver import cdp
 from zendriver.core.cloudflare import (
     cf_is_interactive_challenge_present,
@@ -20,6 +23,8 @@ from zendriver.core.cloudflare import (
 
 from src.errors import CloudflareChallengeError
 from src.tools.base import ToolBase
+
+logger = logging.getLogger(__name__)
 
 
 class StealthTools(ToolBase):
@@ -35,17 +40,66 @@ class StealthTools(ToolBase):
         self._register(self.set_timezone)
         self._register(self.set_geolocation)
 
-    async def bypass_cloudflare(self, timeout: float = 20.0, click_delay: float = 4.0) -> str:
-        """Solve a Cloudflare interactive (Turnstile) challenge on the current page.
-
-        Waits up to ``timeout`` seconds for the challenge iframe, then clicks the checkbox
-        every ``click_delay`` seconds until it clears. Raises if it cannot be solved in time.
-        """
+    async def _cf_cleared(self) -> bool:
+        """True when neither an interactive challenge nor the "Just a moment" shell remains."""
+        page = self.session.page
         try:
-            await verify_cf(self.session.page, click_delay=click_delay, timeout=timeout)
-        except TimeoutError as exc:
-            raise CloudflareChallengeError(str(exc)) from exc
-        return "Cloudflare challenge solved"
+            if await cf_is_interactive_challenge_present(page, timeout=2):
+                return False
+        except Exception:
+            pass  # a probe failure is not proof the challenge is gone; fall through to title
+        try:
+            title = (await page.evaluate("document.title") or "")
+        except Exception:
+            return False
+        return "just a moment" not in title.lower()
+
+    async def bypass_cloudflare(self, timeout: float = 30.0, click_delay: float = 4.0) -> str:
+        """Solve a Cloudflare challenge (Turnstile or managed) on the current page.
+
+        Resilient loop: zendriver's ``verify_cf`` captures Turnstile nodes up front, but the
+        challenge iframe re-renders mid-solve, invalidating those node ids ("Node with given
+        id does not belong to the document"). So we (1) poll for auto-clear — a headed stealth
+        browser passes many managed challenges with NO click — and (2) retry ``verify_cf`` from
+        scratch each round so every attempt re-finds FRESH elements, swallowing the stale-node
+        error instead of aborting. Raises only if still challenged at ``timeout``.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        last_err: Exception | None = None
+        reloaded = False
+
+        while loop.time() < deadline:
+            if await self._cf_cleared():
+                return "Cloudflare challenge solved"
+            remaining = deadline - loop.time()
+            try:
+                # Fresh element discovery happens INSIDE verify_cf, so a stale node only
+                # fails this attempt; the next round re-finds current nodes.
+                await verify_cf(
+                    self.session.page,
+                    click_delay=click_delay,
+                    timeout=max(4.0, min(12.0, remaining)),
+                )
+            except Exception as exc:  # TimeoutError, stale-node, transient CDP — all retryable
+                last_err = exc
+                logger.debug("verify_cf attempt failed (retrying): %s", exc)
+                # A managed challenge with no clickable checkbox can still clear on its own;
+                # one reload halfway through often nudges a wedged challenge past.
+                if not reloaded and (deadline - loop.time()) > timeout / 2:
+                    try:
+                        await self.session.page.reload()
+                        reloaded = True
+                    except Exception:
+                        pass
+                await asyncio.sleep(1.0)
+
+        if await self._cf_cleared():
+            return "Cloudflare challenge solved"
+        raise CloudflareChallengeError(
+            f"Could not solve Cloudflare challenge within {timeout}s"
+            + (f" (last error: {last_err})" if last_err else "")
+        )
 
     async def is_cloudflare_challenge_present(self, timeout: float = 5.0) -> bool:
         """Report whether a Cloudflare interactive challenge is visible. Fast probe — use
