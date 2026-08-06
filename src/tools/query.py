@@ -1,5 +1,7 @@
 # element query tools - find element, find all, get text, get attribute, find buttons
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 
 from src.tools.base import ToolBase
 
@@ -16,10 +18,18 @@ class QueryTools(ToolBase):
         self._mcp.tool()(self.find_buttons)
         self._mcp.tool()(self.find_inputs)
 
-    async def find_element(self, selector: Optional[str] = None, text: Optional[str] = None) -> str:
-        """Find an element and return information about it.
+    async def find_element(
+        self,
+        selector: Annotated[Optional[str], Field(description="CSS selector to look for, tried for up to 2 seconds. Example: '#login-form input[type=\"email\"]'")] = None,
+        text: Annotated[Optional[str], Field(description="Visible text to search for, matched as a best match. Used only when selector is omitted. Example: 'Sign in'")] = None,
+    ) -> str:
+        """Check whether one element exists, and report its tag, text, and visibility.
 
-        Provides helpful suggestions if element is not found.
+        Pass exactly one of selector or text. Use to verify a selector before
+        acting on it; when it misses, the result lists interactive elements that
+        do exist on the page, which is usually enough to correct the selector.
+        Returns a 'Found <tag> (visible|HIDDEN): text' line, or a not-found
+        message with those suggestions.
         """
         page = self.session.page
 
@@ -84,8 +94,18 @@ class QueryTools(ToolBase):
 
         return "Error: Provide selector or text"
 
-    async def find_all_elements(self, selector: str, limit: int = 20) -> str:
-        """Find all elements matching a selector."""
+    async def find_all_elements(
+        self,
+        selector: Annotated[str, Field(description="CSS selector matching the set of elements to list. Example: 'article h2'")],
+        limit: Annotated[int, Field(description="Maximum number of elements to include in the output. The total found is reported regardless. Example: 20")] = 20,
+    ) -> str:
+        """List every element matching a selector, with its tag and leading text.
+
+        Use to enumerate repeated structures such as search results, table rows,
+        or list items. Returns the total found, then one numbered
+        '<tag> text' line per element up to limit, with each text truncated to 50
+        characters.
+        """
         elems = await self.session.page.select_all(selector)
         if not elems:
             return f"No elements found: {selector}"
@@ -99,24 +119,47 @@ class QueryTools(ToolBase):
         total, shown = len(elems), min(len(elems), limit)
         return f"Found {total} element(s) (showing {shown}):\n" + "\n".join(results)
 
-    async def get_element_text(self, selector: str) -> str:
-        """Get the text content of an element."""
+    async def get_element_text(
+        self,
+        selector: Annotated[str, Field(description="CSS selector of the single element to read. Example: '.price'")],
+    ) -> str:
+        """Read the visible text of one element.
+
+        Use to extract a single value — a price, a status, a heading — instead of
+        pulling the whole page with get_text_content. Returns the element's text,
+        or '(empty)' when it has none.
+        """
         elem = await self.get_element(selector)
         text = getattr(elem, "text", "") or ""
         return text if text else "(empty)"
 
-    async def get_element_attribute(self, selector: str, attribute: str) -> str:
-        """Get an attribute value from an element."""
+    async def get_element_attribute(
+        self,
+        selector: Annotated[str, Field(description="CSS selector of the single element to read. Example: 'a.download'")],
+        attribute: Annotated[str, Field(description="Name of the HTML attribute to read, as written in the markup. Example: 'href'")],
+    ) -> str:
+        """Read one HTML attribute from one element.
+
+        Use for values that are not visible text — href, src, value, data-*,
+        aria-*. Returns the attribute value as a string, or '(not set)' when the
+        element does not carry it.
+        """
         elem = await self.get_element(selector)
         attrs = getattr(elem, "attrs", {})
         value = attrs.get(attribute) if attrs else None
         return str(value) if value else "(not set)"
 
-    async def find_buttons(self, filter_text: Optional[str] = None) -> str:
-        """Find all clickable buttons on the page, including icon-only buttons.
+    async def find_buttons(
+        self,
+        filter_text: Annotated[Optional[str], Field(description="Case-insensitive substring to match against each button's label. Omit to list every button. Example: 'submit'")] = None,
+    ) -> str:
+        """List the page's clickable buttons with a usable selector for each.
 
-        Detects: button tags, input[type=submit], [role=button], clickable divs/spans with icons.
-        Returns selector and description for each button found.
+        Covers button tags, input[type=submit|button], [role=button], onclick
+        handlers, and icon-only buttons — labelling those from aria-label, title,
+        or the icon reference. Hidden buttons are excluded. Returns up to 20
+        numbered '[type] description -> selector' lines, each selector ready to
+        pass to click.
         """
         safe_filter = self.escape_js_string(filter_text) if filter_text else ""
 
@@ -279,11 +322,17 @@ class QueryTools(ToolBase):
 
         return "\n".join(lines)
 
-    async def find_inputs(self, filter_type: Optional[str] = None) -> str:
-        """Find all input fields on the page with their selectors.
+    async def find_inputs(
+        self,
+        filter_type: Annotated[Optional[str], Field(description="Case-insensitive substring matched against each field's input type, e.g. 'text', 'search', 'password', 'email'. Omit to list every field. Example: 'password'")] = None,
+    ) -> str:
+        """List the page's input fields with a usable selector for each.
 
-        Detects: input, textarea, contenteditable, [role=textbox], search boxes.
-        filter_type: optional filter like 'text', 'search', 'password', 'email'
+        Covers input, textarea, contenteditable, and [role=textbox], labelling
+        each from its <label> element, its inline hint text, or aria-label.
+        Hidden and type=hidden fields are excluded. Returns up to 20 numbered
+        '[type] description -> selector' lines, each selector ready to pass to
+        type_text or fill_form.
         """
         safe_filter = self.escape_js_string(filter_type) if filter_type else ""
 

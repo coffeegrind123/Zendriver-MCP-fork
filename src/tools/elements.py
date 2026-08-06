@@ -1,5 +1,7 @@
 # element interaction tools - click, type, clear, focus, select, upload
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 from zendriver import cdp
 
 from src.tools.base import ToolBase
@@ -18,8 +20,19 @@ class ElementTools(ToolBase):
         self._mcp.tool()(self.select_option)
         self._mcp.tool()(self.upload_file)
 
-    async def click(self, selector: Optional[str] = None, text: Optional[str] = None) -> str:
-        """Click a visible element by CSS selector, numeric ID (from get_interaction_tree), or text content."""
+    async def click(
+        self,
+        selector: Annotated[Optional[str], Field(description="CSS selector, or a bare numeric id from get_interaction_tree (passed as a string). Example: '#submit' or '42'")] = None,
+        text: Annotated[Optional[str], Field(description="Visible text of the element to click, matched as a best match. Used only when selector is omitted. Example: 'Add to cart'")] = None,
+    ) -> str:
+        """Click one visible element, located by selector, numeric id, or visible text.
+
+        Pass exactly one of selector or text. Numeric ids come from
+        get_interaction_tree and are the most reliable route on complex pages;
+        they are invalidated by any navigation or re-render. Returns a
+        confirmation naming what was clicked, or an error string if the element is
+        missing, hidden, or neither argument was given.
+        """
         if selector:
             if selector.isdigit():
                 selector = f'[data-zendriver-id="{selector}"]'
@@ -42,8 +55,18 @@ class ElementTools(ToolBase):
             return f"Clicked: {text}"
         return "Error: Provide selector or text"
 
-    async def type_text(self, text: str, selector: str) -> str:
-        """Type text into an element using CDP Input.insertText (no JS)."""
+    async def type_text(
+        self,
+        text: Annotated[str, Field(description="Literal text to insert. Inserted as one chunk, so it fires no per-key events. Example: 'user@example.com'")],
+        selector: Annotated[str, Field(description="CSS selector, or a bare numeric id from get_interaction_tree (passed as a string). Example: '#email' or '7'")],
+    ) -> str:
+        """Type text into an input by inserting it via CDP, without executing JavaScript.
+
+        Clicks the element to focus it first, so the element must be visible.
+        Appends to any existing value — call clear_input first to replace it.
+        Because it inserts in one operation, use press_key for anything that needs
+        real keydown/keyup events. Returns a confirmation naming the target.
+        """
 
         # Make selector consistent
         if selector.isdigit():
@@ -61,8 +84,17 @@ class ElementTools(ToolBase):
 
 
 
-    async def clear_input(self, selector: str) -> str:
-        """Clear an input field or contenteditable element."""
+    async def clear_input(
+        self,
+        selector: Annotated[str, Field(description="CSS selector, or a bare numeric id from get_interaction_tree (passed as a string). Example: '#search' or '3'")],
+    ) -> str:
+        """Empty an input, textarea, or contenteditable element.
+
+        Use before type_text to replace a value rather than append to it. Works
+        by selecting all and deleting, so the page sees a real edit and its
+        change handlers fire. Returns a confirmation naming the element, or an
+        error string if the selector matched nothing.
+        """
         if selector.isdigit():
             selector = f'[data-zendriver-id="{selector}"]'
 
@@ -74,8 +106,16 @@ class ElementTools(ToolBase):
         await elem.apply("(el) => { el.focus(); document.execCommand('selectAll'); document.execCommand('delete'); }")
         return f"Cleared: {selector}"
 
-    async def focus_element(self, selector: str) -> str:
-        """Focus on an element."""
+    async def focus_element(
+        self,
+        selector: Annotated[str, Field(description="CSS selector, or a bare numeric id from get_interaction_tree (passed as a string). Example: '#search' or '3'")],
+    ) -> str:
+        """Move keyboard focus to an element without clicking it.
+
+        Use before press_key when a click would trigger unwanted behaviour, or to
+        open a widget that reacts to focus. type_text focuses on its own, so this
+        is not needed first. Returns a confirmation naming the element.
+        """
         if selector.isdigit():
             selector = f'[data-zendriver-id="{selector}"]'
 
@@ -83,8 +123,18 @@ class ElementTools(ToolBase):
         await elem.focus()
         return f"Focused on: {selector}"
 
-    async def select_option(self, selector: str, value: str) -> str:
-        """Select an option from a dropdown."""
+    async def select_option(
+        self,
+        selector: Annotated[str, Field(description="CSS selector of the <select> element, or a bare numeric id from get_interaction_tree. Example: '#country' or '9'")],
+        value: Annotated[str, Field(description="The option's value attribute, NOT its visible label. Read the markup with get_content if unsure. Example: 'FI'")],
+    ) -> str:
+        """Choose an option in a native <select> dropdown by its value attribute.
+
+        Sets the value and dispatches a bubbling change event, so framework
+        listeners fire. Only works on native <select>; custom dropdowns built from
+        divs need click instead. Returns a confirmation naming the value and
+        element.
+        """
         if selector.isdigit():
             selector = f'[data-zendriver-id="{selector}"]'
 
@@ -98,8 +148,17 @@ class ElementTools(ToolBase):
         ''')
         return f"Selected '{value}' in: {selector}"
 
-    async def upload_file(self, selector: str, file_path: str) -> str:
-        """Upload a file to a file input."""
+    async def upload_file(
+        self,
+        selector: Annotated[str, Field(description="CSS selector of the <input type=\"file\"> element, or a bare numeric id from get_interaction_tree. Example: 'input[type=\"file\"]' or '5'")],
+        file_path: Annotated[str, Field(description="Absolute path to the file, as seen by the machine running this server, not the browser host. Example: '/home/user/documents/id.png'")],
+    ) -> str:
+        """Attach a local file to a file input, without opening the OS file picker.
+
+        The path must exist on the server's filesystem. Submit the surrounding
+        form afterwards with submit_form or click. Returns a confirmation naming
+        the file and target element.
+        """
         if selector.isdigit():
             selector = f'[data-zendriver-id="{selector}"]'
 

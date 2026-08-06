@@ -1,6 +1,8 @@
 # form and input tools - fill form, submit, keyboard, mouse
 import json
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 
 from src.tools.base import ToolBase
 
@@ -16,8 +18,17 @@ class FormTools(ToolBase):
         self._mcp.tool()(self.press_enter)
         self._mcp.tool()(self.mouse_click)
 
-    async def fill_form(self, form_data: str) -> str:
-        """Fill a form with multiple fields. Pass JSON like '{"#email": "test@test.com"}'."""
+    async def fill_form(
+        self,
+        form_data: Annotated[str, Field(description="A JSON object string mapping CSS selector to the value to type, NOT a nested object and not field names. Example: '{\"#email\": \"user@example.com\", \"#password\": \"hunter2\"}'")],
+    ) -> str:
+        """Fill several form fields in one call, clearing each before typing.
+
+        Faster than repeated clear_input/type_text pairs. Selectors that match
+        nothing are skipped silently, so check the count in the result. Does not
+        submit — follow with submit_form or click. Returns how many fields were
+        filled and which selectors they were.
+        """
         data = json.loads(form_data)
         filled = []
 
@@ -30,20 +41,32 @@ class FormTools(ToolBase):
 
         return f"Filled {len(filled)} field(s): {', '.join(filled)}"
 
-    async def submit_form(self, selector: str = "form") -> str:
-        """Submit a form."""
+    async def submit_form(
+        self,
+        selector: Annotated[str, Field(description="CSS selector of the form element. Defaults to the page's first form. Example: '#login-form'")] = "form",
+    ) -> str:
+        """Submit a form by calling its native submit() method.
+
+        Note that submit() does NOT fire the form's submit handlers, so on
+        JavaScript-driven forms clicking the submit button — or press_enter — is
+        more reliable. Silently does nothing if the selector matches no form.
+        Returns a confirmation naming the selector.
+        """
         safe_sel = self.escape_js_string(selector)
         await self.run_js(f'document.querySelector("{safe_sel}")?.submit()')
         return f"Form submitted: {selector}"
 
-    async def press_key(self, key: str, selector: Optional[str] = None) -> str:
-        """Press a keyboard key with full event simulation.
+    async def press_key(
+        self,
+        key: Annotated[str, Field(description="Key name for named keys ('Enter', 'Tab', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Home', 'End', 'PageUp', 'PageDown'), or a single character for literal keys. Example: 'Enter'")],
+        selector: Annotated[Optional[str], Field(description="CSS selector of the element to send the key to. Omit to target whatever currently has focus. Example: '#search'")] = None,
+    ) -> str:
+        """Press one key with full keydown, keypress, and keyup event simulation.
 
-        Args:
-            key: Key to press (e.g., 'Enter', 'Tab', 'Escape', 'a', 'Backspace')
-            selector: Optional element selector to send key to (defaults to active element)
-
-        Properly triggers keydown, keypress, and keyup events that frameworks listen to.
+        Use when a framework listens for real key events and type_text's bulk
+        insert is ignored. Enter additionally submits an enclosing form or clicks
+        a button, and Tab advances focus. Returns a confirmation naming the key
+        and target.
         """
         safe_key = self.escape_js_string(key)
 
@@ -133,11 +156,31 @@ class FormTools(ToolBase):
         ''')
         return f"Pressed key: {key}" + (f" on {selector}" if selector else "")
 
-    async def press_enter(self, selector: Optional[str] = None) -> str:
-        """Press Enter key - convenience wrapper for press_key('Enter')."""
+    async def press_enter(
+        self,
+        selector: Annotated[Optional[str], Field(description="CSS selector of the element to send Enter to. Omit to target whatever currently has focus. Example: '#search'")] = None,
+    ) -> str:
+        """Press Enter, submitting an enclosing form or activating a button.
+
+        A convenience wrapper for press_key('Enter'); use that for any other key.
+        More reliable than submit_form on JavaScript-driven forms, because it
+        fires the events the page actually listens for. Returns a confirmation
+        naming the key and target.
+        """
         return await self.press_key("Enter", selector)
 
-    async def mouse_click(self, x: int, y: int) -> str:
-        """Click at specific coordinates."""
+    async def mouse_click(
+        self,
+        x: Annotated[int, Field(description="Horizontal position in CSS pixels from the viewport's left edge. Example: 640")],
+        y: Annotated[int, Field(description="Vertical position in CSS pixels from the viewport's top edge. Example: 400")],
+    ) -> str:
+        """Click at absolute viewport coordinates rather than at an element.
+
+        A last resort for canvas, map, and custom widgets that expose nothing
+        selectable — prefer click for anything with a selector or numeric id,
+        since coordinates break whenever the layout shifts. The point must be
+        within the current viewport; scroll first if not. Returns a confirmation
+        naming the coordinates.
+        """
         await self.session.page.mouse_click(x, y)
         return f"Clicked at ({x}, {y})"

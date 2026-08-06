@@ -4,10 +4,11 @@ import json
 import os
 import tempfile
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 
 from mcp.server.fastmcp.utilities.types import Image
 from PIL import Image as PILImage
+from pydantic import Field
 
 from src.tools.base import ToolBase
 
@@ -23,13 +24,17 @@ class UtilityTools(ToolBase):
         self._mcp.tool()(self.wait_for_element)
         self._mcp.tool()(self.run_security_audit)
 
-    async def screenshot(self, save_path: Optional[str] = None) -> Image:
-        """Take a screenshot of the current page and return as viewable image.
+    async def screenshot(
+        self,
+        save_path: Annotated[Optional[str], Field(description="Path to also write the image to on the server's filesystem. The extension picks the format: .png, .gif, and .bmp are saved losslessly, anything else as JPEG. Omit to return the image without writing a file. Example: '/tmp/page.png'")] = None,
+    ) -> Image:
+        """Take a screenshot of the visible viewport as an image you can look at directly.
 
-        Args:
-            save_path: Optional path to save the screenshot to disk (e.g., "screenshot.png").
-                      If provided, saves the file and returns the image. If not provided,
-                      only returns the image data without saving to disk.
+        The fastest way to understand a page's actual layout when selectors and
+        text are not enough. Set window_size and device_scale_factor on
+        start_browser first — the default viewport is roughly 800x600, which is
+        why screenshots come out small. Returns the image as JPEG at quality 60
+        to stay under the size limit, or a plain red image if no page is loaded.
         """
         if not self.session.page:
             # return red placeholder image with error
@@ -67,8 +72,17 @@ class UtilityTools(ToolBase):
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
-    async def execute_js(self, script: str) -> str:
-        """Execute JavaScript code on the page and return the result.
+    async def execute_js(
+        self,
+        script: Annotated[str, Field(description="A JavaScript EXPRESSION evaluated in the page, not a statement block. A bare 'return' is a syntax error — wrap multi-statement code in an IIFE. Example: 'document.title' or '(function() { return document.links.length; })()'")],
+    ) -> str:
+        """Execute a JS expression in the page and return its value.
+
+        The escape hatch for anything the dedicated tools do not cover — reading
+        computed styles, calling page functions, extracting structured data in one
+        pass. Prefer the specific tools where they apply; they handle shadow DOM
+        and visibility for you. Returns the result as indented JSON, or
+        '(no return value)', or an error string that names the JavaScript fault.
 
         IMPORTANT: Do NOT use 'return' statements directly in your script.
         The script is automatically wrapped to capture the result.
@@ -109,18 +123,33 @@ class UtilityTools(ToolBase):
                 )
             return f"JavaScript Error: {error_msg}"
 
-    async def wait(self, seconds: float = 1.0) -> str:
-        """Wait for specified seconds."""
+    async def wait(
+        self,
+        seconds: Annotated[float, Field(description="How long to pause, in seconds. Example: 2.0")] = 1.0,
+    ) -> str:
+        """Pause for a fixed number of seconds before the next tool runs.
+
+        A blunt fallback for animations and rate limits. Prefer
+        wait_for_element, wait_for_network, or wait_for_request wherever the
+        thing being waited for can be named — they are faster and do not fail
+        when the page is slower than the guess. Returns a confirmation naming the
+        duration waited.
+        """
         await self.session.page.wait(seconds)
         return f"Waited {seconds}s"
 
-    async def wait_for_element(self, selector: str, timeout: float = 30.0, visible: bool = True) -> str:
-        """Wait for an element to appear on the page.
+    async def wait_for_element(
+        self,
+        selector: Annotated[str, Field(description="CSS selector to wait for. Example: '#results .item'")],
+        timeout: Annotated[float, Field(description="Maximum seconds to wait before giving up. The default suits single-page apps. Example: 30.0")] = 30.0,
+        visible: Annotated[bool, Field(description="Require the element to be visible, not merely present in the DOM. Set false to accept a hidden element. Example: true")] = True,
+    ) -> str:
+        """Wait until an element appears on the page, polling until it does.
 
-        Args:
-            selector: CSS selector to wait for
-            timeout: Maximum time to wait in seconds (default: 30s for SPAs)
-            visible: If True, also checks element is visible (not hidden)
+        The right way to synchronise with a single-page app after a click or
+        navigation — more reliable than wait with a guessed duration. Returns a
+        confirmation once the element appears, or a timeout message naming the
+        selector that never matched.
         """
         safe_sel = self.escape_js_string(selector)
 
@@ -172,11 +201,13 @@ class UtilityTools(ToolBase):
         return f"Timeout: Element not found after {timeout}s: {selector}{hint}"
 
     async def run_security_audit(self) -> str:
-        """Run a comprehensive security audit on the current page.
+        """Audit the loaded page's client-side security posture.
 
-        Checks for: HTTPS, CSRF protection, password security, mixed content,
-        inline scripts, SRI (Subresource Integrity), forms, sensitive data exposure,
-        and JavaScript security patterns.
+        Checks HTTPS, CSRF protection, password field handling, mixed content,
+        inline scripts, Subresource Integrity, form targets, exposed sensitive
+        data, and risky JavaScript patterns. Inspects only what the current page
+        exposes to the browser — it is not a scan of the server. Returns a
+        formatted multi-section report of findings.
         """
         page = self.session.page
         url = getattr(page, "url", "unknown")

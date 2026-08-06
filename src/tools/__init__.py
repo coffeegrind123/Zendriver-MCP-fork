@@ -30,6 +30,23 @@ _form_tools = FormTools(mcp)
 _utility_tools = UtilityTools(mcp)
 _stealth_tools = StealthTools(mcp)
 
+
+def _declare_explicit_required(server: FastMCP) -> None:
+    """Emit an explicit "required" array on every tool schema.
+
+    pydantic omits "required" entirely when every parameter has a default, so a
+    model cannot tell "nothing is mandatory" apart from "this schema forgot to
+    say". The empty array states it outright. Do not remove: it cannot be
+    expressed from the function signatures.
+    """
+    for tool in server._tool_manager.list_tools():
+        params = tool.parameters
+        if isinstance(params, dict) and params.get("type") == "object" and "required" not in params:
+            params["required"] = []
+
+
+_declare_explicit_required(mcp)
+
 # export individual tool functions for backwards compatibility
 # browser lifecycle
 start_browser = _browser_tools.start_browser

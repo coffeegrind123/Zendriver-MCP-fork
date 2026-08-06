@@ -1,5 +1,7 @@
 # browser lifecycle tools - start, stop, status
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 
 from src.tools.base import ToolBase
 
@@ -15,29 +17,19 @@ class BrowserTools(ToolBase):
 
     async def start_browser(
         self,
-        headless: bool = False,
-        proxy: Optional[str] = None,
-        user_data_dir: Optional[str] = None,
-        low_memory: bool = False,
-        window_size: Optional[str] = None,
-        device_scale_factor: Optional[float] = None
+        headless: Annotated[bool, Field(description="Run with no visible window. Default False (headed). Headed is what actually beats Cloudflare and most bot detection — prefer False on protected sites. Example: false")] = False,
+        proxy: Annotated[Optional[str], Field(description="Proxy URL, with optional inline credentials. Omit for a direct connection. Example: 'http://user:pass@10.0.0.1:8080'")] = None,
+        user_data_dir: Annotated[Optional[str], Field(description="Absolute path to a Chrome profile directory, to persist cookies and logins across runs. Omit for a fresh temporary profile. Example: '/home/user/.cache/zendriver-profile'")] = None,
+        low_memory: Annotated[bool, Field(description="Opt-in Chrome flags for constrained or containerised hosts (--disable-dev-shm-usage, --disable-gpu, first-run skips). REQUIRED on root/Docker hosts with a small /dev/shm or no GPU, where the browser otherwise fails to connect. WARNING: detectable as automation (software WebGL) — leave false when stealth matters. Example: false")] = False,
+        window_size: Annotated[Optional[str], Field(description="Viewport size as 'WIDTHxHEIGHT' or 'WIDTH,HEIGHT'. Omitted, Chrome uses its headless default of roughly 800x600, which is why screenshots come out small. Example: '1440x900'")] = None,
+        device_scale_factor: Annotated[Optional[float], Field(description="Device pixel ratio, for retina-quality captures. The screenshot is window_size * device_scale_factor pixels. Example: 2")] = None,
     ) -> str:
-        """Start the browser with configuration options.
+        """Launch the browser and start a session. Required before every other tool.
 
-        low_memory: opt-in Chrome flags for constrained/containerised hosts
-            (--disable-dev-shm-usage for tiny /dev/shm, --disable-gpu, and
-            first-run skips). REQUIRED on root/Docker envs with a small
-            /dev/shm or no GPU, where the browser otherwise fails to connect.
-            WARNING: these flags are detectable as automation (software WebGL,
-            etc.) — leave False (default) when stealth matters (anti-bot /
-            Cloudflare-protected sites). The agent decides per launch.
-        window_size: viewport size as "WIDTHxHEIGHT" (e.g. "1440x900") or
-            "WIDTH,HEIGHT". Without it Chrome uses its headless default
-            (~800x600), which is why screenshots come out small. Set this for
-            larger captures. Applied as the launch --window-size flag.
-        device_scale_factor: device pixel ratio (e.g. 2 for retina-quality,
-            crisp screenshots). Applied as --force-device-scale-factor; the
-            captured image is window_size * device_scale_factor pixels.
+        Every other tool in this server operates on the browser this starts, and
+        fails without it. One browser at a time; call stop_browser before starting
+        another with different options. Returns a confirmation naming the mode and
+        any options applied.
         """
         browser_args = []
         if window_size:
@@ -74,12 +66,22 @@ class BrowserTools(ToolBase):
         return f"Browser started in {mode} mode{extra_info}"
 
     async def stop_browser(self) -> str:
-        """Stop the browser and clean up all resources."""
+        """Stop the browser, close every tab, and release all session resources.
+
+        Call when finished, or before start_browser to relaunch with different
+        options. Unsaved page state and non-persisted cookies are lost. Returns a
+        confirmation string.
+        """
         await self.session.stop()
         return "Browser stopped and all resources cleaned up"
 
     async def get_browser_status(self) -> str:
-        """Get current browser status and session info."""
+        """Check whether the browser is running, and list its open tabs.
+
+        Use to decide whether start_browser is still needed, or to recover tab ids
+        after losing track. Returns 'Browser: Not started', or 'Browser: Running'
+        followed by the tab count and one '  - <tab_id>: <url>' line per tab.
+        """
         if not self.session.is_browser_started():
             return "Browser: Not started"
 

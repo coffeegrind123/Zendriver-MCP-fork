@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Annotated
 
+from pydantic import Field
 from zendriver import cdp
 from zendriver.core.cloudflare import (
     cf_is_interactive_challenge_present,
@@ -54,8 +56,19 @@ class StealthTools(ToolBase):
             return False
         return "just a moment" not in title.lower()
 
-    async def bypass_cloudflare(self, timeout: float = 30.0, click_delay: float = 4.0) -> str:
+    async def bypass_cloudflare(
+        self,
+        timeout: Annotated[float, Field(description="Maximum seconds to keep retrying before raising. Example: 30.0")] = 30.0,
+        click_delay: Annotated[float, Field(description="Seconds to pause before clicking the Turnstile checkbox, mimicking human hesitation. Too short reads as automation. Example: 4.0")] = 4.0,
+    ) -> str:
         """Solve a Cloudflare challenge (Turnstile or managed) on the current page.
+
+        Call after landing on a page that shows "Just a moment"; check first with
+        is_cloudflare_challenge_present to skip the click cycle when the page
+        already passed. Requires a HEADED browser — in headless the click is
+        rejected, so start_browser with headless false. Returns 'Cloudflare
+        challenge solved', or raises CloudflareChallengeError if still challenged
+        at timeout.
 
         Resilient loop: zendriver's ``verify_cf`` captures Turnstile nodes up front, but the
         challenge iframe re-renders mid-solve, invalidating those node ids ("Node with given
@@ -101,15 +114,31 @@ class StealthTools(ToolBase):
             + (f" (last error: {last_err})" if last_err else "")
         )
 
-    async def is_cloudflare_challenge_present(self, timeout: float = 5.0) -> bool:
-        """Report whether a Cloudflare interactive challenge is visible. Fast probe — use
-        before ``bypass_cloudflare`` to skip the click cycle when the page already passed."""
+    async def is_cloudflare_challenge_present(
+        self,
+        timeout: Annotated[float, Field(description="Maximum seconds to look for the challenge before concluding it is absent. Example: 5.0")] = 5.0,
+    ) -> bool:
+        """Check whether a Cloudflare interactive challenge is currently on screen.
+
+        A fast probe to run before bypass_cloudflare, so the slow click cycle is
+        skipped on pages that already passed. Returns true when an interactive
+        challenge is present, false otherwise.
+        """
         return await cf_is_interactive_challenge_present(self.session.page, timeout=timeout)
 
     async def set_user_agent(
-        self, user_agent: str, accept_language: str | None = None, platform: str | None = None
+        self,
+        user_agent: Annotated[str, Field(description="Full User-Agent string to send. Example: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'")],
+        accept_language: Annotated[str | None, Field(description="Accept-Language header value. Omit to leave it unchanged. Example: 'en-GB,en;q=0.9'")] = None,
+        platform: Annotated[str | None, Field(description="Value reported by navigator.platform. Should agree with the user_agent or the mismatch is itself a detection signal. Example: 'Win32'")] = None,
     ) -> str:
-        """Override User-Agent, Accept-Language, and navigator.platform on the current tab."""
+        """Override the User-Agent, Accept-Language, and navigator.platform for this tab.
+
+        Applies to the current tab only, and does not survive creating a new one.
+        Keep the three values mutually consistent — a Windows UA reporting
+        platform 'Linux x86_64' is more detectable than no override at all. Use
+        clear_user_agent to undo. Returns a confirmation naming the UA applied.
+        """
         await self.session.page.send(
             cdp.network.set_user_agent_override(
                 user_agent=user_agent, accept_language=accept_language, platform=platform
@@ -118,8 +147,13 @@ class StealthTools(ToolBase):
         return f"User-Agent overridden: {user_agent}"
 
     async def clear_user_agent(self) -> str:
-        """Restore the browser's real User-Agent (Browser.getVersion returns the real UA
-        regardless of overrides; setting empty would be MORE fingerprintable)."""
+        """Restore the browser's genuine User-Agent after set_user_agent.
+
+        Reads the real UA back from the browser and re-applies it, because
+        clearing the override to an empty string would itself be a fingerprinting
+        signal. Returns the restored User-Agent, truncated to 80 characters, or a
+        notice if the browser has no active connection.
+        """
         connection = self.session.browser.connection
         if connection is None:
             return "Browser has no active connection"
@@ -127,18 +161,46 @@ class StealthTools(ToolBase):
         await self.session.page.send(cdp.network.set_user_agent_override(user_agent=real_ua))
         return f"User-Agent restored to default: {real_ua[:80]}"
 
-    async def set_locale(self, locale: str) -> str:
-        """Override the browser locale (e.g. ``en_US``); empty string restores system default."""
+    async def set_locale(
+        self,
+        locale: Annotated[str, Field(description="Locale identifier such as 'en_US' or 'fi_FI'. Pass an empty string to restore the system default. Example: 'en_US'")],
+    ) -> str:
+        """Override the browser's reported locale, affecting language and formatting.
+
+        Changes what the page sees from Intl and navigator.language. Keep it
+        consistent with set_timezone and the Accept-Language passed to
+        set_user_agent — a mismatched trio is a detection signal. Returns a
+        confirmation naming the locale applied.
+        """
         await self.session.page.send(cdp.emulation.set_locale_override(locale=locale or None))
         return f"Locale set to: {locale or '(system default)'}"
 
-    async def set_timezone(self, timezone_id: str) -> str:
-        """Override the IANA timezone (e.g. ``Europe/Helsinki``); empty restores default."""
+    async def set_timezone(
+        self,
+        timezone_id: Annotated[str, Field(description="IANA timezone identifier, not a UTC offset. Pass an empty string to restore the system default. Example: 'Europe/Helsinki'")],
+    ) -> str:
+        """Override the browser's reported timezone.
+
+        Changes what Date and Intl report to the page. Keep it consistent with
+        set_locale and set_geolocation — a Helsinki locale on a New York clock is
+        a detection signal. Returns a confirmation naming the timezone applied.
+        """
         await self.session.page.send(cdp.emulation.set_timezone_override(timezone_id=timezone_id))
         return f"Timezone set to: {timezone_id or '(system default)'}"
 
-    async def set_geolocation(self, latitude: float, longitude: float, accuracy: float = 100.0) -> str:
-        """Override the browser's geolocation. Accuracy is in metres."""
+    async def set_geolocation(
+        self,
+        latitude: Annotated[float, Field(description="Latitude in decimal degrees, positive north. Example: 60.1699")],
+        longitude: Annotated[float, Field(description="Longitude in decimal degrees, positive east. Example: 24.9384")],
+        accuracy: Annotated[float, Field(description="Reported accuracy radius in metres. Implausibly small values look synthetic. Example: 100.0")] = 100.0,
+    ) -> str:
+        """Override the position returned by the browser's Geolocation API.
+
+        Use for pages that gate content by location. The page must still be
+        granted geolocation permission to ask. Keep it consistent with
+        set_timezone and set_locale. Returns a confirmation naming the
+        coordinates applied.
+        """
         await self.session.page.send(
             cdp.emulation.set_geolocation_override(
                 latitude=latitude, longitude=longitude, accuracy=accuracy
