@@ -1,6 +1,9 @@
 # Browser session management for Zendriver MCP server.
 # Includes CDP event listeners for network and console logging.
 
+import os
+import sys
+
 import zendriver as zd
 from zendriver import cdp
 from typing import Dict, List, Any, Optional
@@ -25,6 +28,7 @@ class BrowserSession:
     _cdp_enabled_tabs: Dict[int, bool] = {}  # Track tabs with CDP listeners
     _proxy_username: Optional[str] = None
     _proxy_password: Optional[str] = None
+    _loaded_extensions: List[Dict[str, str]] = []
 
     def __new__(cls) -> "BrowserSession":
         if cls._instance is None:
@@ -70,6 +74,107 @@ class BrowserSession:
         """Check if a page is loaded."""
         return self._page is not None
 
+    # Unpacked extensions auto-provisioned into extensions/<dir> on first launch.
+    # asset_suffix picks the release asset; wrapper is the top-level directory
+    # inside that zip, or None when the zip extracts flat (no wrapper dir).
+    EXTENSIONS = (
+        # uBlock Origin Lite, not uBlock Origin: gorhill/uBlock's .chromium.zip is
+        # still manifest v2, and Chrome 150 refuses it outright ("Cannot install
+        # extension because it uses an unsupported manifest version"), so the old
+        # ublock/ dir could never have been blocking anything here. uBOL is the
+        # MV3 build from the same project.
+        {
+            "dir": "ubol",
+            "repo": "uBlockOrigin/uBOL-home",
+            "asset_suffix": ".chromium.zip",
+            "wrapper": None,
+        },
+        {
+            "dir": "isdcac",
+            "repo": "OhMyGuus/I-Still-Dont-Care-About-Cookies",
+            "asset_suffix": "-chrome-source.zip",
+            "wrapper": None,
+        },
+    )
+
+    @staticmethod
+    def _ensure_extension(spec: Dict[str, Any]) -> Optional[str]:
+        """Download+unpack an extension if absent. Returns its dir, or None on failure.
+
+        Extraction goes to a sibling temp dir that is renamed into place only once
+        complete, so an interrupted download can never leave a half-populated
+        directory that later launches would treat as already-installed.
+        """
+        import shutil, zipfile, tempfile, urllib.request, json
+
+        ext_root = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "extensions"
+        )
+        ext_dir = os.path.join(ext_root, spec["dir"])
+        if os.path.isfile(os.path.join(ext_dir, "manifest.json")):
+            return ext_dir
+        if os.path.isdir(ext_dir):
+            shutil.rmtree(ext_dir, ignore_errors=True)  # salvage a broken install
+
+        os.makedirs(ext_root, exist_ok=True)
+        staging = tempfile.mkdtemp(prefix=spec["dir"] + ".", dir=ext_root)
+        zip_path = os.path.join(staging, "download.zip")
+        try:
+            api = "https://api.github.com/repos/%s/releases/latest" % spec["repo"]
+            with urllib.request.urlopen(api, timeout=60) as r:
+                meta = json.loads(r.read())
+            url = next(
+                a["browser_download_url"]
+                for a in meta["assets"]
+                if a["name"].endswith(spec["asset_suffix"])
+            )
+            urllib.request.urlretrieve(url, zip_path)
+            with zipfile.ZipFile(zip_path, "r") as z:
+                z.extractall(staging)
+            os.remove(zip_path)
+
+            src = staging if spec["wrapper"] is None else os.path.join(staging, spec["wrapper"])
+            if not os.path.isfile(os.path.join(src, "manifest.json")):
+                raise RuntimeError(
+                    "%s: no manifest.json under %s (asset layout changed?)"
+                    % (spec["dir"], src)
+                )
+            os.rename(src, ext_dir)
+            return ext_dir
+        except Exception as e:
+            # Never fail the launch over an extension — log loudly and carry on
+            # unextended, but say WHICH one and why, so a silent no-adblock
+            # session is not mistaken for a working one.
+            print("[zendriver-mcp] extension '%s' unavailable: %r" % (spec["dir"], e),
+                  file=sys.stderr, flush=True)
+            return None
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+    async def _load_extensions(self, ext_dirs: List[str]) -> None:
+        """Install the provisioned extensions over CDP, after the browser is up.
+
+        Reports each install by name/id (and each failure with Chrome's own
+        reason) so a session running without an adblocker is never mistaken for
+        a working one.
+        """
+        if not ext_dirs:
+            return
+        for ext_dir in ext_dirs:
+            try:
+                ext_id = await self._browser.connection.send(
+                    cdp.extensions.load_unpacked(ext_dir)
+                )
+                self._loaded_extensions.append({"path": ext_dir, "id": ext_id})
+            except Exception as e:
+                print("[zendriver-mcp] extension load failed for %s: %s"
+                      % (ext_dir, e), file=sys.stderr, flush=True)
+        if self._loaded_extensions:
+            print("[zendriver-mcp] extensions loaded: %s"
+                  % ", ".join("%s (%s)" % (os.path.basename(x["path"]), x["id"])
+                              for x in self._loaded_extensions),
+                  file=sys.stderr, flush=True)
+
     async def start(
         self,
         headless: bool = False,
@@ -93,19 +198,16 @@ class BrowserSession:
                     if _a not in args:
                         args.append(_a)
 
-            import os, zipfile, urllib.request, json
-            ext_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "extensions", "ublock")
-            if not os.path.isdir(ext_dir):
-                os.makedirs(os.path.dirname(ext_dir), exist_ok=True)
-                zip_path = ext_dir + ".zip"
-                meta = json.loads(urllib.request.urlopen("https://api.github.com/repos/gorhill/uBlock/releases/latest").read())
-                url = next(a["browser_download_url"] for a in meta["assets"] if a["name"].endswith(".chromium.zip"))
-                urllib.request.urlretrieve(url, zip_path)
-                with zipfile.ZipFile(zip_path, "r") as z:
-                    z.extractall(os.path.dirname(ext_dir))
-                os.rename(os.path.join(os.path.dirname(ext_dir), "uBlock0.chromium"), ext_dir)
-                os.remove(zip_path)
-            args.append("--load-extension=" + ext_dir)
+            # Extensions are NOT passed via --load-extension: Chrome 137+ ignores
+            # that switch outright (verified on 150.0.7871.124 — even a one-file
+            # MV3 test extension never appears, and the old
+            # --disable-features=DisableLoadExtensionCommandLineSwitch escape
+            # hatch no longer exists). The supported route is the CDP Extensions
+            # domain, which needs this flag at launch; the actual install happens
+            # in _load_extensions() once the browser is up.
+            ext_dirs = [d for d in (self._ensure_extension(s) for s in self.EXTENSIONS) if d]
+            if ext_dirs and "--enable-unsafe-extension-debugging" not in args:
+                args.append("--enable-unsafe-extension-debugging")
 
             if proxy:
                 parsed = urlparse(proxy)
@@ -135,6 +237,9 @@ class BrowserSession:
                 browser_connection_timeout=1.0,
                 browser_connection_max_tries=40,
             )
+
+            self._loaded_extensions = []
+            await self._load_extensions(ext_dirs)
 
             # Clear state on new session
             self._network_logs = []
@@ -170,6 +275,7 @@ class BrowserSession:
             self._console_logs = []
             self._pending_requests = {}
             self._cdp_enabled_tabs = {}
+            self._loaded_extensions = []
 
     async def _setup_cdp_listeners(self, tab: zd.Tab) -> None:
         """Set up CDP event listeners for network and console logging."""

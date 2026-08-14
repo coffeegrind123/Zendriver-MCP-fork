@@ -29,8 +29,37 @@ Most browser automation tools (Selenium, Playwright, Puppeteer) use WebDriver pr
 - **CDP Network Logging** - Real-time network request and console log capture, its super easy to create endpoint based scrappers as llms can directly access the network logs
 - **Security Auditing** - Comprehensive security analysis tool
 - **Authenticated Proxy Support** - HTTP and SOCKS5 proxies with credentials handled via CDP Fetch domain
+- **Bundled Extensions** - uBlock Origin Lite + I Still Don't Care About Cookies, auto-provisioned and installed on every launch
 
 
+
+## Bundled Extensions
+
+Every `start_browser` installs two extensions, so pages arrive without ads or
+consent walls eating the DOM:
+
+| Extension | Source | Local dir |
+|---|---|---|
+| uBlock Origin Lite (uBOL) | `uBlockOrigin/uBOL-home`, latest `*.chromium.zip` | `extensions/ubol` |
+| I Still Don't Care About Cookies | `OhMyGuus/I-Still-Dont-Care-About-Cookies`, latest `ISDCAC-chrome-source.zip` | `extensions/isdcac` |
+
+Each is downloaded from its GitHub release on first launch and cached on disk;
+delete a directory to force a re-fetch of the current release. If a download
+fails the launch still proceeds — the reason is printed to stderr rather than
+silently leaving you unprotected.
+
+Two constraints drive the implementation, both verified against Chrome
+150.0.7871.124:
+
+- **`--load-extension` is dead.** Chrome ≥137 ignores it, and the old
+  `--disable-features=DisableLoadExtensionCommandLineSwitch` escape hatch no
+  longer works — a one-file MV3 test extension passed that way never appears in
+  `/json/list` or in the profile's `Preferences`. Extensions are therefore
+  installed after startup via the CDP `Extensions.loadUnpacked` command, which
+  requires launching with `--enable-unsafe-extension-debugging`.
+- **Manifest v2 is refused.** `gorhill/uBlock`'s `.chromium.zip` is still MV2, and
+  loading it returns *"Cannot install extension because it uses an unsupported
+  manifest version."* Hence uBOL, which is the MV3 build.
 
 ## Proxy Support
 
