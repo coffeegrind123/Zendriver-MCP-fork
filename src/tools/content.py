@@ -17,37 +17,63 @@ class ContentTools(ToolBase):
         self._mcp.tool()(self.scroll)
         self._mcp.tool()(self.scroll_to_element)
 
-    async def get_content(self) -> str:
+    async def get_content(
+        self,
+        max_chars: Annotated[int, Field(description="Maximum characters of HTML to return in this call. Pass a larger value or page with offset to read more. Example: 10000")] = 10000,
+        offset: Annotated[int, Field(description="Character offset to start from, for paging through a large page. Example: 0")] = 0,
+    ) -> str:
         """Get the page's full rendered HTML, including markup and attributes.
 
         Use when you need selectors, attributes, or hidden markup. Prefer
         get_text_content when you only want readable text, and
         get_interaction_tree when you want something to click — both are far
-        cheaper. Returns the HTML source, truncated at 50000 characters.
+        cheaper. Returns a '[chars X-Y of TOTAL]' header then the requested
+        slice; when more remains the header names the next offset to request.
         """
         content = await self.session.page.get_content()
-        return self.truncate(content, 50000)
+        return self._paginate(content, max_chars, offset)
 
-    async def get_text_content(self) -> str:
+    async def get_text_content(
+        self,
+        max_chars: Annotated[int, Field(description="Maximum characters of text to return in this call. Pass a larger value or page with offset to read more. Example: 10000")] = 10000,
+        offset: Annotated[int, Field(description="Character offset to start from, for paging through long text. Example: 0")] = 0,
+    ) -> str:
         """Get the page's visible text, without any HTML markup.
 
         Use for reading or extracting page copy. Text hidden by CSS is excluded,
         and no selectors are returned, so use get_interaction_tree if you intend
-        to interact. Returns document.body.innerText, truncated at 30000
-        characters.
+        to interact. Same '[chars X-Y of TOTAL]' pagination contract as
+        get_content: the header reports total length and the next offset.
         """
         text = await self.run_js('document.body.innerText')
-        return self.truncate(text, 30000)
+        return self._paginate(str(text), max_chars, offset)
 
-    async def get_interaction_tree(self) -> str:
+    @staticmethod
+    def _paginate(text: str, max_chars: int, offset: int) -> str:
+        """Slice ``text`` with a one-line header so agents can page deliberately."""
+        max_chars = max(1, max_chars)
+        total = len(text)
+        offset = min(max(0, offset), total)
+        chunk = text[offset:offset + max_chars]
+        end = offset + len(chunk)
+        header = f"[chars {offset}-{end} of {total}]"
+        if end < total:
+            header += f" (next: offset={end})"
+        return f"{header}\n{chunk}"
+
+    async def get_interaction_tree(
+        self,
+        limit: Annotated[int, Field(description="Maximum number of interactive elements to return. Raise it on dense pages; a note reports when the cap was hit. Example: 150")] = 150,
+    ) -> str:
         """List the page's interactive elements, each with a short numeric id.
 
         The cheapest way to see what can be clicked or typed into: it walks the
         DOM including shadow roots for buttons, links, and inputs. The numeric ids
         it assigns are accepted directly by click, type_text, and the other
         element tools in place of a CSS selector. Ids are invalidated by any
-        navigation or re-render, so re-run after those. Returns indented JSON, or
-        an error string if the page could not be analysed.
+        navigation or re-render, so re-run after those. Returns compact JSON,
+        capped at limit with a note when the cap is hit, or an error string if
+        the page could not be analysed.
         """
         import json
         import os
@@ -62,9 +88,16 @@ class ContentTools(ToolBase):
 
         try:
             tree = await self.run_js(js_code)
-            return json.dumps(tree, separators=(",", ":"))
         except Exception as e:
             return f"Error analyzing page: {str(e)}"
+
+        tree = tree or []
+        limit = max(1, limit)
+        total = len(tree)
+        payload = json.dumps(tree[:limit], separators=(",", ":"))
+        if total > limit:
+            return f"[showing {limit} of {total} elements; raise limit for more]\n{payload}"
+        return payload
 
     async def scroll(
         self,

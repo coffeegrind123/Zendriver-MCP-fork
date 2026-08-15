@@ -20,14 +20,14 @@ class LoggingTools(ToolBase):
 
     async def get_network_logs(
         self,
-        limit: Annotated[int, Field(description="Maximum number of most-recent requests to return. Example: 50")] = 50,
+        limit: Annotated[int, Field(description="Maximum number of most-recent requests to return. Raise it to see more history. Example: 20")] = 20,
     ) -> str:
         """List recent network requests the page made, captured via CDP.
 
         Use to find the API endpoint behind a rendered value, or to confirm a
         request fired and what it returned. Capture starts when the browser does,
         so requests made before start_browser are absent. Returns one
-        '  METHOD url - status' line per request, URLs truncated to 80
+        '  METHOD url status type' line per request, URLs truncated to 80
         characters, or 'No network logs captured'.
         """
         logs = self.session.get_network_logs(limit)
@@ -39,12 +39,13 @@ class LoggingTools(ToolBase):
             method = log.get('method', 'GET')
             url = log.get('url', 'unknown')[:80]
             status = log.get('status', '?')
-            lines.append(f"  {method} {url} - {status}")
+            rtype = log.get('type', '')
+            lines.append(f"  {method} {url} {status} {rtype}".rstrip())
         return "\n".join(lines)
 
     async def get_console_logs(
         self,
-        limit: Annotated[int, Field(description="Maximum number of most-recent console entries to return. Example: 50")] = 50,
+        limit: Annotated[int, Field(description="Maximum number of most-recent console entries to return. Raise it to see more history. Example: 20")] = 20,
     ) -> str:
         """List recent browser console output, captured via CDP.
 

@@ -240,10 +240,14 @@ class QueryTools(ToolBase):
                         }} catch(e) {{}}
                     }}
 
-                    // try data-testid or data-id
-                    const testId = el.getAttribute("data-testid") || el.getAttribute("data-id");
+                    // try data-testid, then data-id (each with its own attr name)
+                    const testId = el.getAttribute("data-testid");
                     if (testId) {{
                         return el.tagName.toLowerCase() + "[data-testid='" + testId + "']";
+                    }}
+                    const dataId = el.getAttribute("data-id");
+                    if (dataId) {{
+                        return el.tagName.toLowerCase() + "[data-id='" + dataId + "']";
                     }}
 
                     // try simple classes only (no Tailwind prefixes)

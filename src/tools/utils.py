@@ -12,6 +12,11 @@ from pydantic import Field
 
 from src.tools.base import ToolBase
 
+# Cap the returned screenshot width; vision tokens scale with pixel area, so a
+# 1920px capture costs ~3.5x a 1024px one for no readability gain. Downscaling
+# applies only to the returned image — save_path files keep full resolution.
+MAX_SCREENSHOT_WIDTH = 1024
+
 
 class UtilityTools(ToolBase):
     """utility tools for screenshots, js, waiting, and security"""
@@ -26,15 +31,17 @@ class UtilityTools(ToolBase):
 
     async def screenshot(
         self,
-        save_path: Annotated[Optional[str], Field(description="Path to also write the image to on the server's filesystem. The extension picks the format: .png, .gif, and .bmp are saved losslessly, anything else as JPEG. Omit to return the image without writing a file. Example: '/tmp/page.png'")] = None,
+        save_path: Annotated[Optional[str], Field(description="Path to also write the image to on the server's filesystem, at FULL resolution. The extension picks the format: .png, .gif, and .bmp are saved losslessly, anything else as JPEG. Omit to return the image without writing a file. Example: '/tmp/page.png'")] = None,
+        full_resolution: Annotated[bool, Field(description="Return the image without downscaling. By default the returned image is capped at 1024px wide to save vision tokens; set true when you need to read fine detail. Example: false")] = False,
     ) -> Image:
         """Take a screenshot of the visible viewport as an image you can look at directly.
 
         The fastest way to understand a page's actual layout when selectors and
         text are not enough. Set window_size and device_scale_factor on
         start_browser first — the default viewport is roughly 800x600, which is
-        why screenshots come out small. Returns the image as JPEG at quality 60
-        to stay under the size limit, or a plain red image if no page is loaded.
+        why screenshots come out small. The returned image is JPEG quality 60,
+        downscaled to 1024px wide unless full_resolution is set; save_path files
+        keep full resolution. Returns a plain red image if no page is loaded.
         """
         if not self.session.page:
             # return red placeholder image with error
@@ -48,24 +55,38 @@ class UtilityTools(ToolBase):
 
         try:
             await self.session.page.save_screenshot(tmp_path)
-            # compress to JPEG for smaller size (under 1MB limit)
+            # compress to JPEG (under 1MB limit); downscale the RETURNED image to
+            # cap vision-token cost, while save_path keeps the full resolution.
             with PILImage.open(tmp_path) as img:
+                full_res = img.convert("RGB")
+                returned = full_res
+                if not full_resolution and full_res.width > MAX_SCREENSHOT_WIDTH:
+                    new_height = round(full_res.height * MAX_SCREENSHOT_WIDTH / full_res.width)
+                    returned = full_res.resize(
+                        (MAX_SCREENSHOT_WIDTH, new_height), PILImage.Resampling.LANCZOS
+                    )
+
                 buffer = io.BytesIO()
-                img.convert("RGB").save(buffer, format="JPEG", quality=60, optimize=True)
+                returned.save(buffer, format="JPEG", quality=60, optimize=True)
                 jpeg_data = buffer.getvalue()
 
-                # If save_path provided, save to disk
+                # If save_path provided, save to disk at full resolution.
                 if save_path:
-                    # Determine format from extension
                     ext = os.path.splitext(save_path)[1].lower()
                     if ext in ['.png', '.gif', '.bmp']:
                         # Re-open original for lossless formats
                         with PILImage.open(tmp_path) as orig:
                             orig.save(save_path)
-                    else:
-                        # Save as JPEG for .jpg/.jpeg or unknown
+                    elif returned is full_res:
+                        # returned image was not downscaled — reuse its bytes
                         with open(save_path, 'wb') as f:
                             f.write(jpeg_data)
+                    else:
+                        # encode the full-resolution image separately
+                        full_buffer = io.BytesIO()
+                        full_res.save(full_buffer, format="JPEG", quality=60, optimize=True)
+                        with open(save_path, 'wb') as f:
+                            f.write(full_buffer.getvalue())
 
                 return Image(data=jpeg_data, format="jpeg")
         finally:
@@ -81,7 +102,7 @@ class UtilityTools(ToolBase):
         The escape hatch for anything the dedicated tools do not cover — reading
         computed styles, calling page functions, extracting structured data in one
         pass. Prefer the specific tools where they apply; they handle shadow DOM
-        and visibility for you. Returns the result as indented JSON, or
+        and visibility for you. Returns the result as compact JSON, or
         '(no return value)', or an error string that names the JavaScript fault.
 
         IMPORTANT: Do NOT use 'return' statements directly in your script.

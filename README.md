@@ -210,10 +210,25 @@ The `browser` (lifecycle) group is always retained so a session can start/stop
 the browser. `ALLOW`/`DENY` refine whatever the profile/groups selected, e.g.
 `ZENDRIVER_MCP_PROFILE=browse ZENDRIVER_MCP_DENY=go_forward`.
 
-### 3. Compact output
+### 3. Response diet (leaner output by default)
 
-`get_interaction_tree` and `execute_js` now emit minified JSON (no pretty-print
-indentation), roughly halving their token cost with no loss of information.
+Output-side token cost, not just schema cost:
+
+- `get_interaction_tree` and `execute_js` emit minified JSON (no pretty-print
+  indentation); the tree also takes a `limit` (default 150) and notes when hit.
+- `get_content` / `get_text_content` are paginated — `max_chars` (default 10000)
+  + `offset`, with a `[chars X-Y of TOTAL] (next: offset=Y)` header so the agent
+  pulls only what it needs and knows how much remains (was a flat 50k/30k cut).
+- `screenshot` downscales the returned image to 1024px wide (vision tokens scale
+  with pixel area); `full_resolution=true` opts out, and `save_path` files always
+  keep full resolution.
+- `get_network_logs` / `get_console_logs` default to 20 entries (was 50); network
+  lines now include the resource type.
+
+Measured surface (2026-08-15): full 56 tools ≈ 43.5 KB (~10.9k tokens); the
+`minimal` profile ≈ 19.4 KB (~4.8k); the gateway ≈ 10 KB (~2.5k), a 77% cut.
+`tests/test_schema_budget.py` fails the build if either the full or the gateway
+surface balloons past budget.
 
 ## License
 
