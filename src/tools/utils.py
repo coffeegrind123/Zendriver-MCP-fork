@@ -112,7 +112,7 @@ class UtilityTools(ToolBase):
             result = await self.run_js(script)
             if result is None:
                 return "(no return value)"
-            return json.dumps(result, indent=2, default=str)
+            return json.dumps(result, separators=(",", ":"), default=str)
         except Exception as e:
             error_msg = str(e)
             # provide helpful error messages

@@ -173,6 +173,48 @@ type_text("Hello", "3")  # Types into element with id=3
 
 This approach lets LLMs work with web pages using minimal context while maintaining full functionality.
 
+## Tool Surface / Context Optimization
+
+The server registers ~56 tools. Exposing all of them to every conversation
+bloats context and degrades tool-selection accuracy (see the RAG-MCP discussion
+in ghidra-mcp#307). Three env-configurable modes let a client shrink the visible
+surface without the server losing any capability. All are **off by default** —
+with no env set, all 56 tools are exposed exactly as before.
+
+### 1. Search gateway (biggest win: ~56 → ~10 visible tools)
+
+Set `ZENDRIVER_MCP_GATEWAY=1` (or `ZENDRIVER_MCP_PROFILE=gateway`). The client
+then sees only a small core loop plus three meta-tools:
+
+- `search_tools(query, limit=8)` — find tools by capability ("read cookies",
+  "wait for a network request"); returns ranked `name(params) — summary` lines.
+- `describe_tool(name)` — full description + JSON parameter schema for one tool.
+- `call_tool(name, arguments)` — invoke any hidden tool by name; `arguments` is
+  validated against that tool's real schema, so bad input fails loudly.
+
+Every hidden tool stays fully reachable — the model just discovers it on demand
+instead of paying for all 56 schemas up front. Core native tools default to
+`start_browser, stop_browser, navigate, get_interaction_tree, click, type_text,
+get_text_content`; override with `ZENDRIVER_MCP_GATEWAY_CORE`.
+
+### 2. Profiles and groups (static subset)
+
+| Variable | Effect |
+| --- | --- |
+| `ZENDRIVER_MCP_PROFILE` | `full` (default), `minimal`, `browse`, `interact`, `scrape`, `stealth` |
+| `ZENDRIVER_MCP_GROUPS` | comma/space list of groups: `browser navigation tabs elements query content storage logging forms utils stealth` |
+| `ZENDRIVER_MCP_ALLOW` | comma/space list of exact tool names to keep |
+| `ZENDRIVER_MCP_DENY` | comma/space list of exact tool names to remove |
+
+The `browser` (lifecycle) group is always retained so a session can start/stop
+the browser. `ALLOW`/`DENY` refine whatever the profile/groups selected, e.g.
+`ZENDRIVER_MCP_PROFILE=browse ZENDRIVER_MCP_DENY=go_forward`.
+
+### 3. Compact output
+
+`get_interaction_tree` and `execute_js` now emit minified JSON (no pretty-print
+indentation), roughly halving their token cost with no loss of information.
+
 ## License
 
 MIT

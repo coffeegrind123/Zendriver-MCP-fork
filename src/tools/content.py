@@ -62,7 +62,7 @@ class ContentTools(ToolBase):
 
         try:
             tree = await self.run_js(js_code)
-            return json.dumps(tree, indent=2)
+            return json.dumps(tree, separators=(",", ":"))
         except Exception as e:
             return f"Error analyzing page: {str(e)}"
 

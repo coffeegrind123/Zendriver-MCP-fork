@@ -1,4 +1,6 @@
 # tools package - modular browser automation tools for Zendriver MCP server
+import os
+
 from mcp.server.fastmcp import FastMCP
 
 from src.tools.base import ToolBase
@@ -17,18 +19,43 @@ from src.tools.stealth import StealthTools
 # initialize the MCP server
 mcp = FastMCP("Zendriver MCP")
 
-# register all tool modules and keep instances for backwards compatibility
-_browser_tools = BrowserTools(mcp)
-_navigation_tools = NavigationTools(mcp)
-_tab_tools = TabTools(mcp)
-_element_tools = ElementTools(mcp)
-_query_tools = QueryTools(mcp)
-_content_tools = ContentTools(mcp)
-_storage_tools = StorageTools(mcp)
-_logging_tools = LoggingTools(mcp)
-_form_tools = FormTools(mcp)
-_utility_tools = UtilityTools(mcp)
-_stealth_tools = StealthTools(mcp)
+# register all tool modules and keep instances for backwards compatibility.
+# Capture, per module, the tool names it registers so tools can be grouped for
+# profile filtering and the search gateway (both below) without a hand-kept map
+# that would drift as tools are added.
+_MODULES = [
+    ("browser", BrowserTools),
+    ("navigation", NavigationTools),
+    ("tabs", TabTools),
+    ("elements", ElementTools),
+    ("query", QueryTools),
+    ("content", ContentTools),
+    ("storage", StorageTools),
+    ("logging", LoggingTools),
+    ("forms", FormTools),
+    ("utils", UtilityTools),
+    ("stealth", StealthTools),
+]
+
+_TOOL_GROUPS: dict[str, list[str]] = {}
+_INSTANCES: dict[str, ToolBase] = {}
+for _group, _cls in _MODULES:
+    _before = set(mcp._tool_manager._tools)
+    _INSTANCES[_group] = _cls(mcp)
+    _TOOL_GROUPS[_group] = sorted(set(mcp._tool_manager._tools) - _before)
+
+# backwards-compatible instance handles
+_browser_tools = _INSTANCES["browser"]
+_navigation_tools = _INSTANCES["navigation"]
+_tab_tools = _INSTANCES["tabs"]
+_element_tools = _INSTANCES["elements"]
+_query_tools = _INSTANCES["query"]
+_content_tools = _INSTANCES["content"]
+_storage_tools = _INSTANCES["storage"]
+_logging_tools = _INSTANCES["logging"]
+_form_tools = _INSTANCES["forms"]
+_utility_tools = _INSTANCES["utils"]
+_stealth_tools = _INSTANCES["stealth"]
 
 
 def _declare_explicit_required(server: FastMCP) -> None:
@@ -44,6 +71,76 @@ def _declare_explicit_required(server: FastMCP) -> None:
         if isinstance(params, dict) and params.get("type") == "object" and "required" not in params:
             params["required"] = []
 
+
+def _split_env(name: str) -> set[str]:
+    raw = os.environ.get(name, "")
+    return {tok.strip() for tok in raw.replace(",", " ").split() if tok.strip()}
+
+
+# Named profiles map to sets of tool GROUPS. Selecting a profile or a group list
+# narrows the exposed surface; ALLOW/DENY then refine by exact tool name. The
+# browser lifecycle group is always kept so a session can start/stop the browser.
+_PROFILES: dict[str, set[str]] = {
+    "full": set(_TOOL_GROUPS),
+    "minimal": {"browser", "navigation", "content", "query", "elements"},
+    "browse": {"browser", "navigation", "tabs", "content", "query"},
+    "interact": {"browser", "navigation", "tabs", "elements", "query", "content", "forms"},
+    "scrape": {"browser", "navigation", "tabs", "content", "query", "logging"},
+    "stealth": {"browser", "navigation", "tabs", "elements", "query", "content", "forms", "stealth"},
+}
+
+
+def _apply_tool_filter(server: FastMCP) -> None:
+    """Narrow the exposed tool surface from env (issue #307: too many tools).
+
+    ZENDRIVER_MCP_PROFILE  one of: full, minimal, browse, interact, scrape, stealth
+    ZENDRIVER_MCP_GROUPS   comma/space list of groups (browser, navigation, tabs,
+                           elements, query, content, storage, logging, forms,
+                           utils, stealth)
+    ZENDRIVER_MCP_ALLOW    comma/space list of exact tool names to keep
+    ZENDRIVER_MCP_DENY     comma/space list of exact tool names to remove
+    Unset -> every tool is exposed (unchanged default). PROFILE=gateway is
+    handled by the search gateway below, not here.
+    """
+    profile = os.environ.get("ZENDRIVER_MCP_PROFILE", "").strip().lower()
+    groups = _split_env("ZENDRIVER_MCP_GROUPS")
+    allow = _split_env("ZENDRIVER_MCP_ALLOW")
+    deny = _split_env("ZENDRIVER_MCP_DENY")
+    if profile == "gateway" or not (profile or groups or allow or deny):
+        return
+
+    all_tools = set(server._tool_manager._tools)
+    narrowed = bool(profile and profile != "full") or bool(groups)
+
+    keep: set[str] = set()
+    if profile and profile != "full":
+        keep |= {t for g in _PROFILES.get(profile, set(_TOOL_GROUPS)) for t in _TOOL_GROUPS.get(g, [])}
+    for g in groups:
+        keep |= set(_TOOL_GROUPS.get(g, []))
+    if narrowed:
+        keep |= set(_TOOL_GROUPS.get("browser", []))  # lifecycle always available
+    else:
+        keep = set(all_tools)  # ALLOW/DENY alone operate on the full set
+
+    if allow:
+        keep = (keep & allow) if narrowed else set(allow)
+    if deny:
+        keep -= deny
+    keep &= all_tools
+
+    for name in sorted(all_tools - keep):
+        server._tool_manager.remove_tool(name)
+
+
+_apply_tool_filter(mcp)
+
+# Optional search gateway: hide most tools behind search_tools/describe_tool/
+# call_tool so the client sees ~10 tools instead of ~56 (issue #307 / RAG-MCP).
+_gateway_on = os.environ.get("ZENDRIVER_MCP_GATEWAY", "").strip().lower() in {"1", "true", "yes", "on"}
+if _gateway_on or os.environ.get("ZENDRIVER_MCP_PROFILE", "").strip().lower() == "gateway":
+    from src.tools.gateway import install_gateway
+
+    install_gateway(mcp, _TOOL_GROUPS)
 
 _declare_explicit_required(mcp)
 
