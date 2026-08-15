@@ -15,6 +15,17 @@ from src.tools.logging import LoggingTools
 from src.tools.forms import FormTools
 from src.tools.utils import UtilityTools
 from src.tools.stealth import StealthTools
+from src.tools.humanlike import HumanInputTools
+from src.tools.emulation import EmulationTools
+from src.tools.devtools import DevToolsTools
+from src.tools.lighthouse import LighthouseTools
+from src.tools.screencast import ScreencastTools
+from src.tools.accessibility import AccessibilityTools
+from src.tools.cookies import CookieTools
+from src.tools.network_control import NetworkControlTools
+from src.tools.permissions import PermissionsTools
+from src.tools.proxy import ProxyTools
+from src.tools.interception import InterceptionTools
 
 # initialize the MCP server
 mcp = FastMCP("Zendriver MCP")
@@ -35,6 +46,17 @@ _MODULES = [
     ("forms", FormTools),
     ("utils", UtilityTools),
     ("stealth", StealthTools),
+    ("humaninput", HumanInputTools),
+    ("emulation", EmulationTools),
+    ("devtools", DevToolsTools),
+    ("lighthouse", LighthouseTools),
+    ("screencast", ScreencastTools),
+    ("accessibility", AccessibilityTools),
+    ("cookies", CookieTools),
+    ("network", NetworkControlTools),
+    ("permissions", PermissionsTools),
+    ("proxy", ProxyTools),
+    ("interception", InterceptionTools),
 ]
 
 _TOOL_GROUPS: dict[str, list[str]] = {}
@@ -56,6 +78,17 @@ _logging_tools = _INSTANCES["logging"]
 _form_tools = _INSTANCES["forms"]
 _utility_tools = _INSTANCES["utils"]
 _stealth_tools = _INSTANCES["stealth"]
+_human_input_tools = _INSTANCES["humaninput"]
+_emulation_tools = _INSTANCES["emulation"]
+_devtools_tools = _INSTANCES["devtools"]
+_lighthouse_tools = _INSTANCES["lighthouse"]
+_screencast_tools = _INSTANCES["screencast"]
+_accessibility_tools = _INSTANCES["accessibility"]
+_cookie_tools = _INSTANCES["cookies"]
+_network_control_tools = _INSTANCES["network"]
+_permissions_tools = _INSTANCES["permissions"]
+_proxy_tools = _INSTANCES["proxy"]
+_interception_tools = _INSTANCES["interception"]
 
 
 def _declare_explicit_required(server: FastMCP) -> None:
@@ -85,8 +118,10 @@ _PROFILES: dict[str, set[str]] = {
     "minimal": {"browser", "navigation", "content", "query", "elements"},
     "browse": {"browser", "navigation", "tabs", "content", "query"},
     "interact": {"browser", "navigation", "tabs", "elements", "query", "content", "forms"},
-    "scrape": {"browser", "navigation", "tabs", "content", "query", "logging"},
-    "stealth": {"browser", "navigation", "tabs", "elements", "query", "content", "forms", "stealth"},
+    "scrape": {"browser", "navigation", "tabs", "content", "query", "logging", "cookies"},
+    "stealth": {"browser", "navigation", "tabs", "elements", "query", "content", "forms", "stealth", "humaninput", "emulation"},
+    "audit": {"browser", "navigation", "content", "query", "logging", "lighthouse", "devtools", "accessibility"},
+    "network": {"browser", "navigation", "logging", "network", "interception", "proxy", "cookies"},
 }
 
 

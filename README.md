@@ -201,8 +201,8 @@ get_text_content`; override with `ZENDRIVER_MCP_GATEWAY_CORE`.
 
 | Variable | Effect |
 | --- | --- |
-| `ZENDRIVER_MCP_PROFILE` | `full` (default), `minimal`, `browse`, `interact`, `scrape`, `stealth` |
-| `ZENDRIVER_MCP_GROUPS` | comma/space list of groups: `browser navigation tabs elements query content storage logging forms utils stealth` |
+| `ZENDRIVER_MCP_PROFILE` | `full` (default), `minimal`, `browse`, `interact`, `scrape`, `stealth`, `audit`, `network` |
+| `ZENDRIVER_MCP_GROUPS` | comma/space list of groups: `browser navigation tabs elements query content storage logging forms utils stealth humaninput emulation devtools lighthouse screencast accessibility cookies network permissions proxy interception` |
 | `ZENDRIVER_MCP_ALLOW` | comma/space list of exact tool names to keep |
 | `ZENDRIVER_MCP_DENY` | comma/space list of exact tool names to remove |
 
@@ -225,10 +225,35 @@ Output-side token cost, not just schema cost:
 - `get_network_logs` / `get_console_logs` default to 20 entries (was 50); network
   lines now include the resource type.
 
-Measured surface (2026-08-15): full 56 tools ≈ 43.5 KB (~10.9k tokens); the
-`minimal` profile ≈ 19.4 KB (~4.8k); the gateway ≈ 10 KB (~2.5k), a 77% cut.
-`tests/test_schema_budget.py` fails the build if either the full or the gateway
-surface balloons past budget.
+Measured surface (2026-08-15, 98-tool build): full ≈ 64 KB (~15.6k tokens); the
+`minimal` profile ≈ 4.8k tokens; the gateway ≈ 10 KB (~2.5k), an ~84% cut. The
+full surface is intentionally large — the gateway and profiles are the
+mitigation. `tests/test_schema_budget.py` fails the build if either the full or
+the gateway surface balloons past budget.
+
+## Tool families (98 tools)
+
+Grouped for the profile/gateway system above:
+
+- **Core browse/interact:** browser, navigation, tabs, elements (incl.
+  shadow-DOM `click_shadow`/`describe_shadow`), query, content, forms.
+- **Human-like input:** `human_click`, `human_type`, `estimated_typing_duration`
+  — Bézier mouse paths and per-keystroke timing (`humaninput.py`).
+- **Emulation:** viewport, device presets, CPU/network throttling, media.
+- **DevTools:** performance traces, heap snapshots.
+- **Lighthouse:** audits via the `lighthouse` CLI (when installed).
+- **Screencast:** frame capture + MP4 export (when `ffmpeg` is available).
+- **Accessibility:** AX-tree snapshot with stable uids, `click_by_uid`.
+- **Cookies:** full-fidelity export/import (incl. HTTP-only), list, clear.
+- **Network control:** URL blocking, extra headers, service-worker bypass.
+- **Interception:** mock responses, fail requests.
+- **Permissions / Proxy:** grant/reset permissions; configure/clear proxy.
+- **Stealth:** Cloudflare bypass, UA/locale/timezone/geolocation overrides.
+
+Tools that write files (`screenshot`, `export_cookies`, `run_lighthouse`,
+`stop_trace`, `take_heap_snapshot`, `start_screencast`) sandbox the path to
+`$HOME`, the temp dir, or `$ZENDRIVER_MCP_ARTIFACT_ROOT` (`src/artifacts.py`) so
+an agent-supplied path can't overwrite arbitrary files.
 
 ## License
 

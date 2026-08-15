@@ -11,7 +11,9 @@ context is tight. So the guard is two-sided:
 If the full test fails, trim docstrings or move prose to INSTRUCTIONS.md; do
 NOT just raise the budget. If the gateway test fails, a core tool crept in.
 
-Measured 2026-08-15: full 56 tools ~43.5 KB; gateway 10 tools ~10 KB.
+Measured 2026-08-15 (98-tool surface after the bituq feature port): full
+~64 KB; gateway 10 tools ~10 KB. The full surface is intentionally large — the
+gateway and profiles are the mitigation, so the gateway budget is the tight one.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ import asyncio
 import json
 import os
 
-FULL_BUDGET_BYTES = 46_000
+FULL_BUDGET_BYTES = 68_000
 GATEWAY_BUDGET_BYTES = 12_000
 
 

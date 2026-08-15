@@ -1,16 +1,24 @@
 # Browser session management for Zendriver MCP server.
 # Includes CDP event listeners for network and console logging.
 
+import logging
 import os
 import sys
 
 import zendriver as zd
 from zendriver import cdp
-from typing import Dict, List, Any, Optional
+from typing import Callable, Dict, List, Any, Optional
 from datetime import datetime
 from urllib.parse import urlparse
 
 from src.errors import BrowserNotStartedError, PageNotLoadedError
+
+logger = logging.getLogger(__name__)
+
+# A reset callback is invoked on every stop_browser to clear any
+# session-bound state a tool was holding (interception handlers,
+# accessibility uid tables, trace buffers, screencast handles, ...).
+ResetCallback = Callable[[], None]
 
 
 class BrowserSession:
@@ -29,6 +37,7 @@ class BrowserSession:
     _proxy_username: Optional[str] = None
     _proxy_password: Optional[str] = None
     _loaded_extensions: List[Dict[str, str]] = []
+    _reset_callbacks: List[ResetCallback] = []
 
     def __new__(cls) -> "BrowserSession":
         if cls._instance is None:
@@ -38,7 +47,25 @@ class BrowserSession:
             cls._console_logs = []
             cls._pending_requests = {}
             cls._cdp_enabled_tabs = {}
+            cls._reset_callbacks = []
         return cls._instance
+
+    def register_reset_callback(self, callback: ResetCallback) -> None:
+        """Register a zero-arg callback that clears a tool's session state.
+
+        Called once during ``stop_browser`` so the next session starts clean.
+        Stateful tools register from their ``__init__`` (via ToolBase, which
+        auto-registers any ``_reset_state`` method they define).
+        """
+        if callback not in self._reset_callbacks:
+            self._reset_callbacks.append(callback)
+
+    def _run_reset_callbacks(self) -> None:
+        for cb in self._reset_callbacks:
+            try:
+                cb()
+            except Exception:  # one bad tool shouldn't block the rest
+                logger.exception("reset callback failed: %r", cb)
 
     @classmethod
     def get_instance(cls) -> "BrowserSession":
@@ -276,6 +303,7 @@ class BrowserSession:
             self._pending_requests = {}
             self._cdp_enabled_tabs = {}
             self._loaded_extensions = []
+            self._run_reset_callbacks()
 
     async def _setup_cdp_listeners(self, tab: zd.Tab) -> None:
         """Set up CDP event listeners for network and console logging."""

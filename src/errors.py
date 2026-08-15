@@ -38,3 +38,19 @@ class CloudflareChallengeError(ZendriverMCPError):
     # raised when a Cloudflare interactive (Turnstile) challenge could not be solved
     def __init__(self, message: str = "Could not solve the Cloudflare challenge in time."):
         super().__init__(message)
+
+
+class TracingError(ZendriverMCPError):
+    # raised on unexpected state transitions around CDP Tracing.* commands
+    pass
+
+
+class LighthouseNotInstalledError(ZendriverMCPError):
+    # raised when the `lighthouse` CLI is missing on the PATH
+    def __init__(self) -> None:
+        super().__init__("Lighthouse CLI not found. Install with `npm i -g lighthouse`.")
+
+
+class AccessibilityUidError(ZendriverMCPError):
+    # raised when a caller references an unknown or stale accessibility uid
+    pass

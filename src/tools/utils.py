@@ -10,6 +10,7 @@ from mcp.server.fastmcp.utilities.types import Image
 from PIL import Image as PILImage
 from pydantic import Field
 
+from src.artifacts import resolve_artifact_path
 from src.tools.base import ToolBase
 
 # Cap the returned screenshot width; vision tokens scale with pixel area, so a
@@ -70,23 +71,27 @@ class UtilityTools(ToolBase):
                 returned.save(buffer, format="JPEG", quality=60, optimize=True)
                 jpeg_data = buffer.getvalue()
 
-                # If save_path provided, save to disk at full resolution.
+                # If save_path provided, save to disk at full resolution. The
+                # path is sandboxed to $HOME / tempdir / $ZENDRIVER_MCP_ARTIFACT_ROOT
+                # so an agent-supplied path cannot overwrite arbitrary files.
                 if save_path:
                     ext = os.path.splitext(save_path)[1].lower()
+                    default_ext = "png" if ext in {'.png', '.gif', '.bmp'} else "jpg"
+                    resolved = resolve_artifact_path(
+                        save_path, default_prefix="screenshot", default_ext=default_ext
+                    )
                     if ext in ['.png', '.gif', '.bmp']:
                         # Re-open original for lossless formats
                         with PILImage.open(tmp_path) as orig:
-                            orig.save(save_path)
+                            orig.save(str(resolved))
                     elif returned is full_res:
                         # returned image was not downscaled — reuse its bytes
-                        with open(save_path, 'wb') as f:
-                            f.write(jpeg_data)
+                        resolved.write_bytes(jpeg_data)
                     else:
                         # encode the full-resolution image separately
                         full_buffer = io.BytesIO()
                         full_res.save(full_buffer, format="JPEG", quality=60, optimize=True)
-                        with open(save_path, 'wb') as f:
-                            f.write(full_buffer.getvalue())
+                        resolved.write_bytes(full_buffer.getvalue())
 
                 return Image(data=jpeg_data, format="jpeg")
         finally:

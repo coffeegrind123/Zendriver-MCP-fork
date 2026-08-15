@@ -5,6 +5,7 @@ from pydantic import Field
 from zendriver import cdp
 
 from src.tools.base import ToolBase
+from src.tools._shadow_js import CLICK_SHADOW_HOST_JS, DESCRIBE_SHADOW_JS
 from src.errors import ElementNotFoundError
 
 
@@ -14,6 +15,8 @@ class ElementTools(ToolBase):
     def _register_tools(self) -> None:
         """register element interaction tools"""
         self._mcp.tool()(self.click)
+        self._mcp.tool()(self.click_shadow)
+        self._mcp.tool()(self.describe_shadow)
         self._mcp.tool()(self.type_text)
         self._mcp.tool()(self.clear_input)
         self._mcp.tool()(self.focus_element)
@@ -54,6 +57,62 @@ class ElementTools(ToolBase):
             await elem.click()
             return f"Clicked: {text}"
         return "Error: Provide selector or text"
+
+    async def click_shadow(
+        self,
+        selector: Annotated[str, Field(description="CSS selector, or a bare numeric id, of the outer custom element in the light DOM whose shadow tree holds the real control. Example: 'nes-button' or '5'")],
+        max_depth: Annotated[int, Field(description="How many nested shadow roots to descend through. Example: 6")] = 6,
+    ) -> str:
+        """Click the deepest interactive element inside a custom element's shadow DOM.
+
+        Use when a page wraps a real <button> / [role="radio"] /
+        [role="checkbox"] in one or more open shadow roots (<nes-button>,
+        <sds-radio>, <lion-input> and friends). selector should match the outer
+        custom element in the light DOM; this recurses through every nested
+        shadowRoot up to max_depth and dispatches a composed click on the first
+        interactive descendant. Returns an error when the host is missing or no
+        inner interactive element exists.
+        """
+        import json as _json
+
+        selector = self.resolve_selector(selector)
+        safe_sel = _json.dumps(selector)
+        result = await self.run_js(
+            f"(() => {{\n{CLICK_SHADOW_HOST_JS}\nreturn clickShadowHost({safe_sel}, {int(max_depth)});\n}})()"
+        )
+        if not isinstance(result, dict) or not result.get("ok"):
+            reason = result.get("reason") if isinstance(result, dict) else "unknown"
+            if reason == "host_not_found":
+                raise ElementNotFoundError(selector)
+            return f"Error: no interactive element inside {selector} ({reason})"
+        tag = result["tag"]
+        role = result.get("role")
+        role_info = f" role={role}" if role else ""
+        return f"Shadow-clicked: <{tag}{role_info}> inside {selector}"
+
+    async def describe_shadow(
+        self,
+        selector: Annotated[str, Field(description="CSS selector, or a bare numeric id, of the custom element whose nested shadow tree to dump. Example: 'lion-input' or '9'")],
+        max_depth: Annotated[int, Field(description="How many nested shadow roots to descend through. Example: 6")] = 6,
+    ) -> dict:
+        """Dump a custom element's nested shadow-DOM tree for debugging.
+
+        Returns a condensed JSON tree — each node has tag, id, role, type, text,
+        a 'light' array of light-DOM children and a 'shadow' array for the
+        element's shadowRoot children (when open). Use this when find_buttons /
+        find_inputs are not surfacing a control you can see; the result names the
+        exact nested-host path so you can target click_shadow.
+        """
+        import json as _json
+
+        selector = self.resolve_selector(selector)
+        safe_sel = _json.dumps(selector)
+        result = await self.run_js(
+            f"(() => {{\n{DESCRIBE_SHADOW_JS}\nreturn describeShadow({safe_sel}, {int(max_depth)});\n}})()"
+        )
+        if not isinstance(result, dict) or not result.get("ok"):
+            raise ElementNotFoundError(selector)
+        return {"selector": selector, "tree": result["tree"]}
 
     async def type_text(
         self,

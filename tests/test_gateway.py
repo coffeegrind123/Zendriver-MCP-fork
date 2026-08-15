@@ -74,4 +74,4 @@ def test_default_surface_unchanged() -> None:
         "ZENDRIVER_MCP_GATEWAY", "ZENDRIVER_MCP_PROFILE",
         "ZENDRIVER_MCP_GROUPS", "ZENDRIVER_MCP_ALLOW", "ZENDRIVER_MCP_DENY",
     )}
-    assert _run(code, **env_clear).strip() == "56"
+    assert _run(code, **env_clear).strip() == "98"
