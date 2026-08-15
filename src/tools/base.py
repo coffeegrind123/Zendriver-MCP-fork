@@ -4,13 +4,14 @@ import functools
 import inspect
 import os
 import time
-from abc import ABC
-from typing import Any, Callable, Coroutine
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from src.session import BrowserSession
 from src.errors import ElementNotFoundError, ToolTimeoutError
+from src.session import BrowserSession
 
 
 def _default_tool_timeout() -> float:
@@ -61,14 +62,15 @@ class ToolBase(ABC):
         visibility probe before clicking).
         """
         import asyncio as _asyncio
+
         try:
             return await self._session.page.select(selector, timeout=timeout)
         except _asyncio.TimeoutError:
             return None
 
+    @abstractmethod
     def _register_tools(self) -> None:
         """override in subclasses to register tools with mcp"""
-        pass
 
     def _register(
         self,
@@ -109,11 +111,13 @@ class ToolBase(ABC):
     @staticmethod
     def escape_js_string(s: str) -> str:
         """escape special characters for safe JavaScript string interpolation"""
-        return (s.replace("\\", "\\\\")
-                 .replace('"', '\\"')
-                 .replace("'", "\\'")
-                 .replace("\n", "\\n")
-                 .replace("\r", "\\r"))
+        return (
+            s.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("'", "\\'")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+        )
 
     async def get_element(self, selector: str):
         """get element by selector, raise error if not found"""
@@ -147,10 +151,7 @@ class ToolBase(ABC):
         ''')
 
     async def wait_for_condition(
-        self,
-        check_fn: Callable,
-        timeout: float,
-        poll_interval: float = 0.5
+        self, check_fn: Callable, timeout: float, poll_interval: float = 0.5
     ) -> bool:
         """wait for a condition to be true within timeout"""
         start = time.time()

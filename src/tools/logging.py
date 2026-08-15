@@ -1,6 +1,6 @@
 # logging tools - network and console log management
 import time
-from typing import Annotated, Optional
+from typing import Annotated
 
 from pydantic import Field
 
@@ -20,7 +20,12 @@ class LoggingTools(ToolBase):
 
     async def get_network_logs(
         self,
-        limit: Annotated[int, Field(description="Maximum number of most-recent requests to return. Raise it to see more history. Example: 20")] = 20,
+        limit: Annotated[
+            int,
+            Field(
+                description="Maximum number of most-recent requests to return. Raise it to see more history. Example: 20"
+            ),
+        ] = 20,
     ) -> str:
         """List recent network requests the page made, captured via CDP.
 
@@ -36,16 +41,21 @@ class LoggingTools(ToolBase):
 
         lines = [f"Network logs ({len(logs)} entries):"]
         for log in logs:
-            method = log.get('method', 'GET')
-            url = log.get('url', 'unknown')[:80]
-            status = log.get('status', '?')
-            rtype = log.get('type', '')
+            method = log.get("method", "GET")
+            url = log.get("url", "unknown")[:80]
+            status = log.get("status", "?")
+            rtype = log.get("type", "")
             lines.append(f"  {method} {url} {status} {rtype}".rstrip())
         return "\n".join(lines)
 
     async def get_console_logs(
         self,
-        limit: Annotated[int, Field(description="Maximum number of most-recent console entries to return. Raise it to see more history. Example: 20")] = 20,
+        limit: Annotated[
+            int,
+            Field(
+                description="Maximum number of most-recent console entries to return. Raise it to see more history. Example: 20"
+            ),
+        ] = 20,
     ) -> str:
         """List recent browser console output, captured via CDP.
 
@@ -60,8 +70,8 @@ class LoggingTools(ToolBase):
 
         lines = [f"Console logs ({len(logs)} entries):"]
         for log in logs:
-            log_type = log.get('type', 'log')
-            text = log.get('text', '')[:100]
+            log_type = log.get("type", "log")
+            text = log.get("text", "")[:100]
             lines.append(f"  [{log_type}] {text}")
         return "\n".join(lines)
 
@@ -77,8 +87,15 @@ class LoggingTools(ToolBase):
 
     async def wait_for_network(
         self,
-        timeout: Annotated[float, Field(description="Maximum seconds to wait before giving up. Example: 10.0")] = 10.0,
-        idle_time: Annotated[float, Field(description="Seconds with no new request before the network counts as idle. Example: 0.5")] = 0.5,
+        timeout: Annotated[
+            float, Field(description="Maximum seconds to wait before giving up. Example: 10.0")
+        ] = 10.0,
+        idle_time: Annotated[
+            float,
+            Field(
+                description="Seconds with no new request before the network counts as idle. Example: 0.5"
+            ),
+        ] = 0.5,
     ) -> str:
         """Wait until the page stops making network requests.
 
@@ -114,9 +131,21 @@ class LoggingTools(ToolBase):
 
     async def wait_for_request(
         self,
-        url_pattern: Annotated[str, Field(description="Case-insensitive substring matched anywhere in the request URL. Not a regex and not a glob. Example: '/api/search'")],
-        timeout: Annotated[float, Field(description="Maximum seconds to wait before giving up. Example: 30.0")] = 30.0,
-        method: Annotated[Optional[str], Field(description="HTTP method the request must use, matched case-insensitively. Omit to accept any method. Example: 'POST'")] = None,
+        url_pattern: Annotated[
+            str,
+            Field(
+                description="Case-insensitive substring matched anywhere in the request URL. Not a regex and not a glob. Example: '/api/search'"
+            ),
+        ],
+        timeout: Annotated[
+            float, Field(description="Maximum seconds to wait before giving up. Example: 30.0")
+        ] = 30.0,
+        method: Annotated[
+            str | None,
+            Field(
+                description="HTTP method the request must use, matched case-insensitively. Omit to accept any method. Example: 'POST'"
+            ),
+        ] = None,
     ) -> str:
         """Wait until one specific network request appears, matched by URL substring.
 
@@ -140,15 +169,15 @@ class LoggingTools(ToolBase):
                     continue
                 seen_requests.add(req_id)
 
-                url = log.get('url', '').lower()
-                req_method = log.get('method', 'GET')
+                url = log.get("url", "").lower()
+                req_method = log.get("method", "GET")
 
                 # check if this request matches our pattern
                 if safe_pattern in url:
                     if safe_method and req_method != safe_method:
                         continue
 
-                    status = log.get('status', '?')
+                    status = log.get("status", "?")
                     elapsed = time.time() - start
                     return (
                         f"Found matching request after {elapsed:.1f}s:\n"

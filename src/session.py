@@ -4,12 +4,13 @@
 import logging
 import os
 import sys
+from collections.abc import Callable
+from datetime import datetime
+from typing import Any
+from urllib.parse import urlparse
 
 import zendriver as zd
 from zendriver import cdp
-from typing import Callable, Dict, List, Any, Optional
-from datetime import datetime
-from urllib.parse import urlparse
 
 from src.errors import BrowserNotStartedError, PageNotLoadedError
 
@@ -24,20 +25,20 @@ ResetCallback = Callable[[], None]
 class BrowserSession:
     """Singleton class to manage browser session across all tool calls."""
 
-    default_browser_path: Optional[str] = None
+    default_browser_path: str | None = None
     _instance: "BrowserSession | None" = None
     _browser: zd.Browser | None = None
     _page: zd.Tab | None = None
-    _tabs: Dict[str, zd.Tab] = {}
+    _tabs: dict[str, zd.Tab] = {}
     _tab_counter: int = 0
-    _network_logs: List[Dict[str, Any]] = []
-    _console_logs: List[Dict[str, Any]] = []
-    _pending_requests: Dict[str, Dict[str, Any]] = {}
-    _cdp_enabled_tabs: Dict[int, bool] = {}  # Track tabs with CDP listeners
-    _proxy_username: Optional[str] = None
-    _proxy_password: Optional[str] = None
-    _loaded_extensions: List[Dict[str, str]] = []
-    _reset_callbacks: List[ResetCallback] = []
+    _network_logs: list[dict[str, Any]] = []
+    _console_logs: list[dict[str, Any]] = []
+    _pending_requests: dict[str, dict[str, Any]] = {}
+    _cdp_enabled_tabs: dict[int, bool] = {}  # Track tabs with CDP listeners
+    _proxy_username: str | None = None
+    _proxy_password: str | None = None
+    _loaded_extensions: list[dict[str, str]] = []
+    _reset_callbacks: list[ResetCallback] = []
 
     def __new__(cls) -> "BrowserSession":
         if cls._instance is None:
@@ -125,14 +126,18 @@ class BrowserSession:
     )
 
     @staticmethod
-    def _ensure_extension(spec: Dict[str, Any]) -> Optional[str]:
+    def _ensure_extension(spec: dict[str, Any]) -> str | None:
         """Download+unpack an extension if absent. Returns its dir, or None on failure.
 
         Extraction goes to a sibling temp dir that is renamed into place only once
         complete, so an interrupted download can never leave a half-populated
         directory that later launches would treat as already-installed.
         """
-        import shutil, zipfile, tempfile, urllib.request, json
+        import json
+        import shutil
+        import tempfile
+        import urllib.request
+        import zipfile
 
         ext_root = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "extensions"
@@ -163,8 +168,7 @@ class BrowserSession:
             src = staging if spec["wrapper"] is None else os.path.join(staging, spec["wrapper"])
             if not os.path.isfile(os.path.join(src, "manifest.json")):
                 raise RuntimeError(
-                    "%s: no manifest.json under %s (asset layout changed?)"
-                    % (spec["dir"], src)
+                    "%s: no manifest.json under %s (asset layout changed?)" % (spec["dir"], src)
                 )
             os.rename(src, ext_dir)
             return ext_dir
@@ -172,13 +176,16 @@ class BrowserSession:
             # Never fail the launch over an extension — log loudly and carry on
             # unextended, but say WHICH one and why, so a silent no-adblock
             # session is not mistaken for a working one.
-            print("[zendriver-mcp] extension '%s' unavailable: %r" % (spec["dir"], e),
-                  file=sys.stderr, flush=True)
+            print(
+                "[zendriver-mcp] extension '%s' unavailable: %r" % (spec["dir"], e),
+                file=sys.stderr,
+                flush=True,
+            )
             return None
         finally:
             shutil.rmtree(staging, ignore_errors=True)
 
-    async def _load_extensions(self, ext_dirs: List[str]) -> None:
+    async def _load_extensions(self, ext_dirs: list[str]) -> None:
         """Install the provisioned extensions over CDP, after the browser is up.
 
         Reports each install by name/id (and each failure with Chrome's own
@@ -189,27 +196,35 @@ class BrowserSession:
             return
         for ext_dir in ext_dirs:
             try:
-                ext_id = await self._browser.connection.send(
+                ext_id = await self._browser.connection.send(  # type: ignore[union-attr]
                     cdp.extensions.load_unpacked(ext_dir)
                 )
                 self._loaded_extensions.append({"path": ext_dir, "id": ext_id})
             except Exception as e:
-                print("[zendriver-mcp] extension load failed for %s: %s"
-                      % (ext_dir, e), file=sys.stderr, flush=True)
+                print(
+                    "[zendriver-mcp] extension load failed for %s: %s" % (ext_dir, e),
+                    file=sys.stderr,
+                    flush=True,
+                )
         if self._loaded_extensions:
-            print("[zendriver-mcp] extensions loaded: %s"
-                  % ", ".join("%s (%s)" % (os.path.basename(x["path"]), x["id"])
-                              for x in self._loaded_extensions),
-                  file=sys.stderr, flush=True)
+            print(
+                "[zendriver-mcp] extensions loaded: %s"
+                % ", ".join(
+                    "%s (%s)" % (os.path.basename(x["path"]), x["id"])
+                    for x in self._loaded_extensions
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
 
     async def start(
         self,
         headless: bool = False,
-        user_data_dir: Optional[str] = None,
-        proxy: Optional[str] = None,
-        browser_args: Optional[List[str]] = None,
-        browser_executable_path: Optional[str] = None,
-        low_memory: bool = False
+        user_data_dir: str | None = None,
+        proxy: str | None = None,
+        browser_args: list[str] | None = None,
+        browser_executable_path: str | None = None,
+        low_memory: bool = False,
     ) -> zd.Browser:
         """Start the browser with configuration."""
         if self._browser is None:
@@ -220,8 +235,12 @@ class BrowserSession:
             # as automation (software WebGL etc.), so they stay off by default and
             # the caller enables them per-launch via low_memory.
             if low_memory:
-                for _a in ("--disable-dev-shm-usage", "--disable-gpu",
-                           "--no-first-run", "--no-default-browser-check"):
+                for _a in (
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                ):
                     if _a not in args:
                         args.append(_a)
 
@@ -240,14 +259,14 @@ class BrowserSession:
                 parsed = urlparse(proxy)
                 if parsed.username:
                     self._proxy_username = parsed.username
-                    self._proxy_password = parsed.password or ''
+                    self._proxy_password = parsed.password or ""
                 else:
                     self._proxy_username = None
                     self._proxy_password = None
-                proxy_host = parsed.hostname or ''
+                proxy_host = parsed.hostname or ""
                 proxy_port = parsed.port or 8080
-                scheme = parsed.scheme or 'http'
-                if scheme == 'socks5':
+                scheme = parsed.scheme or "http"
+                if scheme == "socks5":
                     args.append(f"--proxy-server=socks5://{proxy_host}:{proxy_port}")
                 else:
                     args.append(f"--proxy-server={proxy_host}:{proxy_port}")
@@ -320,10 +339,12 @@ class BrowserSession:
 
             # Enable Fetch domain for proxy auth if credentials are set
             if self._proxy_username:
-                await tab.send(cdp.fetch.enable(
-                    handle_auth_requests=True,
-                    patterns=[cdp.fetch.RequestPattern(url_pattern='*')]
-                ))
+                await tab.send(
+                    cdp.fetch.enable(
+                        handle_auth_requests=True,
+                        patterns=[cdp.fetch.RequestPattern(url_pattern="*")],
+                    )
+                )
                 if cdp.fetch not in tab.enabled_domains:
                     tab.enabled_domains.append(cdp.fetch)
                 tab.add_handler(cdp.fetch.AuthRequired, self._on_fetch_auth_required)
@@ -348,7 +369,7 @@ class BrowserSession:
             "url": event.request.url,
             "method": event.request.method,
             "timestamp": datetime.now().isoformat(),
-            "type": str(event.type_) if event.type_ else "unknown"
+            "type": str(event.type_) if event.type_ else "unknown",
         }
 
     async def _on_response_received(self, event: cdp.network.ResponseReceived) -> None:
@@ -363,7 +384,7 @@ class BrowserSession:
             "status_text": event.response.status_text,
             "type": str(event.type_) if event.type_ else pending.get("type", "unknown"),
             "mime_type": event.response.mime_type,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
         self._network_logs.append(log_entry)
@@ -384,7 +405,7 @@ class BrowserSession:
                 "status": 0,
                 "status_text": f"FAILED: {event.error_text}",
                 "type": pending.get("type", "unknown"),
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
             self._network_logs.append(log_entry)
 
@@ -406,7 +427,7 @@ class BrowserSession:
         log_entry = {
             "type": str(event.type_),
             "text": " ".join(args_text),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
         self._console_logs.append(log_entry)
@@ -415,7 +436,9 @@ class BrowserSession:
         if len(self._console_logs) > 500:
             self._console_logs = self._console_logs[-500:]
 
-    async def _on_fetch_request_paused(self, event: cdp.fetch.RequestPaused, connection=None) -> None:
+    async def _on_fetch_request_paused(
+        self, event: cdp.fetch.RequestPaused, connection=None
+    ) -> None:
         """Continue paused requests (non-auth). Required when Fetch patterns are active."""
         try:
             target = connection or self._page
@@ -429,14 +452,16 @@ class BrowserSession:
         try:
             target = connection or self._page
             if target and self._proxy_username:
-                await target.send(cdp.fetch.continue_with_auth(
-                    request_id=event.request_id,
-                    auth_challenge_response=cdp.fetch.AuthChallengeResponse(
-                        response="ProvideCredentials",
-                        username=self._proxy_username,
-                        password=self._proxy_password or ''
+                await target.send(
+                    cdp.fetch.continue_with_auth(
+                        request_id=event.request_id,
+                        auth_challenge_response=cdp.fetch.AuthChallengeResponse(
+                            response="ProvideCredentials",
+                            username=self._proxy_username,
+                            password=self._proxy_password or "",
+                        ),
                     )
-                ))
+                )
         except Exception:
             pass
 
@@ -458,7 +483,7 @@ class BrowserSession:
             await self._page.get(url)
         return self._page
 
-    async def create_tab(self, url: Optional[str] = None) -> tuple[str, zd.Tab]:
+    async def create_tab(self, url: str | None = None) -> tuple[str, zd.Tab]:
         """Create a new tab and return its ID."""
         browser = self.browser
         if url:
@@ -497,7 +522,7 @@ class BrowserSession:
             else:
                 self._page = None
 
-    def get_all_tabs(self) -> Dict[str, str]:
+    def get_all_tabs(self) -> dict[str, str]:
         """Get all open tabs with their URLs."""
         result = {}
         for tab_id, tab in self._tabs.items():
@@ -505,11 +530,11 @@ class BrowserSession:
             result[tab_id] = url
         return result
 
-    def get_network_logs(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_network_logs(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get recent network logs."""
         return self._network_logs[-limit:]
 
-    def get_console_logs(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_console_logs(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get recent console logs."""
         return self._console_logs[-limit:]
 

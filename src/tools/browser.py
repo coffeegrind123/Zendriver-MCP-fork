@@ -1,5 +1,5 @@
 # browser lifecycle tools - start, stop, status
-from typing import Annotated, Optional
+from typing import Annotated
 
 from pydantic import Field
 
@@ -17,12 +17,42 @@ class BrowserTools(ToolBase):
 
     async def start_browser(
         self,
-        headless: Annotated[bool, Field(description="Run with no visible window. Default False (headed). Headed is what actually beats Cloudflare and most bot detection — prefer False on protected sites. Example: false")] = False,
-        proxy: Annotated[Optional[str], Field(description="Proxy URL, with optional inline credentials. Omit for a direct connection. Example: 'http://user:pass@10.0.0.1:8080'")] = None,
-        user_data_dir: Annotated[Optional[str], Field(description="Absolute path to a Chrome profile directory, to persist cookies and logins across runs. Omit for a fresh temporary profile. Example: '/home/user/.cache/zendriver-profile'")] = None,
-        low_memory: Annotated[bool, Field(description="Opt-in Chrome flags for constrained or containerised hosts (--disable-dev-shm-usage, --disable-gpu, first-run skips). REQUIRED on root/Docker hosts with a small /dev/shm or no GPU, where the browser otherwise fails to connect. WARNING: detectable as automation (software WebGL) — leave false when stealth matters. Example: false")] = False,
-        window_size: Annotated[Optional[str], Field(description="Viewport size as 'WIDTHxHEIGHT' or 'WIDTH,HEIGHT'. Omitted, Chrome uses its headless default of roughly 800x600, which is why screenshots come out small. Example: '1440x900'")] = None,
-        device_scale_factor: Annotated[Optional[float], Field(description="Device pixel ratio, for retina-quality captures. The screenshot is window_size * device_scale_factor pixels. Example: 2")] = None,
+        headless: Annotated[
+            bool,
+            Field(
+                description="Run with no visible window. Default False (headed). Headed is what actually beats Cloudflare and most bot detection — prefer False on protected sites. Example: false"
+            ),
+        ] = False,
+        proxy: Annotated[
+            str | None,
+            Field(
+                description="Proxy URL, with optional inline credentials. Omit for a direct connection. Example: 'http://user:pass@10.0.0.1:8080'"
+            ),
+        ] = None,
+        user_data_dir: Annotated[
+            str | None,
+            Field(
+                description="Absolute path to a Chrome profile directory, to persist cookies and logins across runs. Omit for a fresh temporary profile. Example: '/home/user/.cache/zendriver-profile'"
+            ),
+        ] = None,
+        low_memory: Annotated[
+            bool,
+            Field(
+                description="Opt-in Chrome flags for constrained or containerised hosts (--disable-dev-shm-usage, --disable-gpu, first-run skips). REQUIRED on root/Docker hosts with a small /dev/shm or no GPU, where the browser otherwise fails to connect. WARNING: detectable as automation (software WebGL) — leave false when stealth matters. Example: false"
+            ),
+        ] = False,
+        window_size: Annotated[
+            str | None,
+            Field(
+                description="Viewport size as 'WIDTHxHEIGHT' or 'WIDTH,HEIGHT'. Omitted, Chrome uses its headless default of roughly 800x600, which is why screenshots come out small. Example: '1440x900'"
+            ),
+        ] = None,
+        device_scale_factor: Annotated[
+            float | None,
+            Field(
+                description="Device pixel ratio, for retina-quality captures. The screenshot is window_size * device_scale_factor pixels. Example: 2"
+            ),
+        ] = None,
     ) -> str:
         """Launch the browser and start a session. Required before every other tool.
 
@@ -36,17 +66,19 @@ class BrowserTools(ToolBase):
             w, _, h = window_size.replace(",", "x").partition("x")
             try:
                 browser_args.append(f"--window-size={int(w.strip())},{int(h.strip())}")
-            except ValueError:
+            except ValueError as exc:
                 raise ValueError(
                     f"Invalid window_size {window_size!r}; expected 'WIDTHxHEIGHT' (e.g. '1440x900')"
-                )
+                ) from exc
         if device_scale_factor:
             browser_args.append(f"--force-device-scale-factor={device_scale_factor}")
 
         await self.session.start(
-            headless=headless, proxy=proxy, user_data_dir=user_data_dir,
+            headless=headless,
+            proxy=proxy,
+            user_data_dir=user_data_dir,
             low_memory=low_memory,
-            browser_args=browser_args or None
+            browser_args=browser_args or None,
         )
 
         # build response message
@@ -87,7 +119,7 @@ class BrowserTools(ToolBase):
 
         # list all open tabs
         tabs = self.session.get_all_tabs()
-        lines = [f"Browser: Running", f"Open tabs: {len(tabs)}"]
+        lines = ["Browser: Running", f"Open tabs: {len(tabs)}"]
         for tab_id, url in tabs.items():
             lines.append(f"  - {tab_id}: {url}")
         return "\n".join(lines)

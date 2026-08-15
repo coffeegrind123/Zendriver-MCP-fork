@@ -1,0 +1,53 @@
+site_name: Zendriver-MCP
+site_description: Undetectable browser automation MCP server for LLM agents — a search gateway, profiles, and 98 tools.
+repo_url: https://github.com/coffeegrind123/Zendriver-MCP-fork
+repo_name: coffeegrind123/Zendriver-MCP-fork
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Match system
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Light mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Dark mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - toc.follow
+    - search.suggest
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.details
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Context optimization: optimization.md
+  - Recipes:
+      - Beat Cloudflare: recipes/beat-cloudflare.md
+      - Mock API responses: recipes/mock-api-responses.md
+      - Performance audit: recipes/performance-audit.md
+      - Scrape behind a login: recipes/scrape-behind-login.md

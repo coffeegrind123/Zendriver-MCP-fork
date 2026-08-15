@@ -1,5 +1,5 @@
 # tab management tools - new tab, list, switch, close
-from typing import Annotated, Optional
+from typing import Annotated
 
 from pydantic import Field
 
@@ -18,7 +18,12 @@ class TabTools(ToolBase):
 
     async def new_tab(
         self,
-        url: Annotated[Optional[str], Field(description="Absolute URL to open in the new tab, including the scheme. Omit to open a blank tab. Example: 'https://example.com'")] = None,
+        url: Annotated[
+            str | None,
+            Field(
+                description="Absolute URL to open in the new tab, including the scheme. Omit to open a blank tab. Example: 'https://example.com'"
+            ),
+        ] = None,
     ) -> str:
         """Open a new browser tab and make it the active tab.
 
@@ -47,7 +52,12 @@ class TabTools(ToolBase):
 
     async def switch_tab(
         self,
-        tab_id: Annotated[str, Field(description="Id of the tab to activate, exactly as returned by list_tabs or new_tab. Not a URL and not a positional index.")],
+        tab_id: Annotated[
+            str,
+            Field(
+                description="Id of the tab to activate, exactly as returned by list_tabs or new_tab. Not a URL and not a positional index."
+            ),
+        ],
     ) -> str:
         """Make an existing tab the active one, so later tools act on it.
 
@@ -59,7 +69,12 @@ class TabTools(ToolBase):
 
     async def close_tab(
         self,
-        tab_id: Annotated[str, Field(description="Id of the tab to close, exactly as returned by list_tabs or new_tab. Not a URL and not a positional index.")],
+        tab_id: Annotated[
+            str,
+            Field(
+                description="Id of the tab to close, exactly as returned by list_tabs or new_tab. Not a URL and not a positional index."
+            ),
+        ],
     ) -> str:
         """Close one tab by id, leaving the browser and other tabs running.
 

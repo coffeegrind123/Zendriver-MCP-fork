@@ -1,5 +1,5 @@
 # element query tools - find element, find all, get text, get attribute, find buttons
-from typing import Annotated, Optional
+from typing import Annotated
 
 from pydantic import Field
 
@@ -20,8 +20,18 @@ class QueryTools(ToolBase):
 
     async def find_element(
         self,
-        selector: Annotated[Optional[str], Field(description="CSS selector to look for, tried for up to 2 seconds. Example: '#login-form input[type=\"email\"]'")] = None,
-        text: Annotated[Optional[str], Field(description="Visible text to search for, matched as a best match. Used only when selector is omitted. Example: 'Sign in'")] = None,
+        selector: Annotated[
+            str | None,
+            Field(
+                description="CSS selector to look for, tried for up to 2 seconds. Example: '#login-form input[type=\"email\"]'"
+            ),
+        ] = None,
+        text: Annotated[
+            str | None,
+            Field(
+                description="Visible text to search for, matched as a best match. Used only when selector is omitted. Example: 'Sign in'"
+            ),
+        ] = None,
     ) -> str:
         """Check whether one element exists, and report its tag, text, and visibility.
 
@@ -41,7 +51,7 @@ class QueryTools(ToolBase):
 
             if elem is None:
                 # provide helpful suggestions
-                suggestions = await self.run_js('''
+                suggestions = await self.run_js("""
                     (function() {
                         const found = [];
                         const ce = document.querySelector('[contenteditable="true"]');
@@ -56,11 +66,11 @@ class QueryTools(ToolBase):
                         if (btn) found.push({ sel: 'button', tag: 'BUTTON' });
                         return found.slice(0, 5);
                     })()
-                ''')
+                """)
 
                 msg = f"Element not found: {selector}"
                 if suggestions:
-                    suggestions_text = ", ".join([s['sel'] for s in suggestions])
+                    suggestions_text = ", ".join([s["sel"] for s in suggestions])
                     msg += f"\nAvailable interactive elements: {suggestions_text}"
                 return msg
 
@@ -82,7 +92,7 @@ class QueryTools(ToolBase):
                 }})()
             ''')
 
-            visibility = "visible" if extra_info.get('visible', True) else "HIDDEN"
+            visibility = "visible" if extra_info.get("visible", True) else "HIDDEN"
             return f"Found <{tag}> ({visibility}): {text_content[:200] if text_content else '(no text)'}"
 
         elif text:
@@ -96,8 +106,18 @@ class QueryTools(ToolBase):
 
     async def find_all_elements(
         self,
-        selector: Annotated[str, Field(description="CSS selector matching the set of elements to list. Example: 'article h2'")],
-        limit: Annotated[int, Field(description="Maximum number of elements to include in the output. The total found is reported regardless. Example: 20")] = 20,
+        selector: Annotated[
+            str,
+            Field(
+                description="CSS selector matching the set of elements to list. Example: 'article h2'"
+            ),
+        ],
+        limit: Annotated[
+            int,
+            Field(
+                description="Maximum number of elements to include in the output. The total found is reported regardless. Example: 20"
+            ),
+        ] = 20,
     ) -> str:
         """List every element matching a selector, with its tag and leading text.
 
@@ -114,14 +134,16 @@ class QueryTools(ToolBase):
         for i, elem in enumerate(elems[:limit]):
             tag = getattr(elem, "tag_name", "unknown")
             text = (getattr(elem, "text", "") or "")[:50]
-            results.append(f"{i+1}. <{tag}> {text}")
+            results.append(f"{i + 1}. <{tag}> {text}")
 
         total, shown = len(elems), min(len(elems), limit)
         return f"Found {total} element(s) (showing {shown}):\n" + "\n".join(results)
 
     async def get_element_text(
         self,
-        selector: Annotated[str, Field(description="CSS selector of the single element to read. Example: '.price'")],
+        selector: Annotated[
+            str, Field(description="CSS selector of the single element to read. Example: '.price'")
+        ],
     ) -> str:
         """Read the visible text of one element.
 
@@ -135,8 +157,16 @@ class QueryTools(ToolBase):
 
     async def get_element_attribute(
         self,
-        selector: Annotated[str, Field(description="CSS selector of the single element to read. Example: 'a.download'")],
-        attribute: Annotated[str, Field(description="Name of the HTML attribute to read, as written in the markup. Example: 'href'")],
+        selector: Annotated[
+            str,
+            Field(description="CSS selector of the single element to read. Example: 'a.download'"),
+        ],
+        attribute: Annotated[
+            str,
+            Field(
+                description="Name of the HTML attribute to read, as written in the markup. Example: 'href'"
+            ),
+        ],
     ) -> str:
         """Read one HTML attribute from one element.
 
@@ -151,7 +181,12 @@ class QueryTools(ToolBase):
 
     async def find_buttons(
         self,
-        filter_text: Annotated[Optional[str], Field(description="Case-insensitive substring to match against each button's label. Omit to list every button. Example: 'submit'")] = None,
+        filter_text: Annotated[
+            str | None,
+            Field(
+                description="Case-insensitive substring to match against each button's label. Omit to list every button. Example: 'submit'"
+            ),
+        ] = None,
     ) -> str:
         """List the page's clickable buttons with a usable selector for each.
 
@@ -322,13 +357,18 @@ class QueryTools(ToolBase):
 
         lines = [f"Found {len(buttons)} button(s):"]
         for i, btn in enumerate(buttons):
-            lines.append(f"  {i+1}. [{btn['type']}] {btn['description']} -> {btn['selector']}")
+            lines.append(f"  {i + 1}. [{btn['type']}] {btn['description']} -> {btn['selector']}")
 
         return "\n".join(lines)
 
     async def find_inputs(
         self,
-        filter_type: Annotated[Optional[str], Field(description="Case-insensitive substring matched against each field's input type, e.g. 'text', 'search', 'password', 'email'. Omit to list every field. Example: 'password'")] = None,
+        filter_type: Annotated[
+            str | None,
+            Field(
+                description="Case-insensitive substring matched against each field's input type, e.g. 'text', 'search', 'password', 'email'. Omit to list every field. Example: 'password'"
+            ),
+        ] = None,
     ) -> str:
         """List the page's input fields with a usable selector for each.
 
@@ -402,6 +442,6 @@ class QueryTools(ToolBase):
 
         lines = [f"Found {len(inputs)} input(s):"]
         for i, inp in enumerate(inputs):
-            lines.append(f"  {i+1}. [{inp['type']}] {inp['description']} -> {inp['selector']}")
+            lines.append(f"  {i + 1}. [{inp['type']}] {inp['description']} -> {inp['selector']}")
 
         return "\n".join(lines)

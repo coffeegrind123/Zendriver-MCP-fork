@@ -1,12 +1,12 @@
 # element interaction tools - click, type, clear, focus, select, upload
-from typing import Annotated, Optional
+from typing import Annotated
 
 from pydantic import Field
 from zendriver import cdp
 
-from src.tools.base import ToolBase
-from src.tools._shadow_js import CLICK_SHADOW_HOST_JS, DESCRIBE_SHADOW_JS
 from src.errors import ElementNotFoundError
+from src.tools._shadow_js import CLICK_SHADOW_HOST_JS, DESCRIBE_SHADOW_JS
+from src.tools.base import ToolBase
 
 
 class ElementTools(ToolBase):
@@ -25,8 +25,18 @@ class ElementTools(ToolBase):
 
     async def click(
         self,
-        selector: Annotated[Optional[str], Field(description="CSS selector, or a bare numeric id from get_interaction_tree (passed as a string). Example: '#submit' or '42'")] = None,
-        text: Annotated[Optional[str], Field(description="Visible text of the element to click, matched as a best match. Used only when selector is omitted. Example: 'Add to cart'")] = None,
+        selector: Annotated[
+            str | None,
+            Field(
+                description="CSS selector, or a bare numeric id from get_interaction_tree (passed as a string). Example: '#submit' or '42'"
+            ),
+        ] = None,
+        text: Annotated[
+            str | None,
+            Field(
+                description="Visible text of the element to click, matched as a best match. Used only when selector is omitted. Example: 'Add to cart'"
+            ),
+        ] = None,
     ) -> str:
         """Click one visible element, located by selector, numeric id, or visible text.
 
@@ -41,11 +51,11 @@ class ElementTools(ToolBase):
                 selector = f'[data-zendriver-id="{selector}"]'
 
             check = await self.check_visibility(selector)
-            if not check['found']:
-                if '[data-zendriver-id=' in selector:
-                     return "Error: ID not found. The page may have changed. Please run get_interaction_tree() again."
+            if not check["found"]:
+                if "[data-zendriver-id=" in selector:
+                    return "Error: ID not found. The page may have changed. Please run get_interaction_tree() again."
                 raise ElementNotFoundError(selector)
-            if check.get('hidden'):
+            if check.get("hidden"):
                 return f"Error: Element '{selector}' is hidden. Cannot click."
             elem = await self.session.page.select(selector)
             if elem:
@@ -60,8 +70,15 @@ class ElementTools(ToolBase):
 
     async def click_shadow(
         self,
-        selector: Annotated[str, Field(description="CSS selector, or a bare numeric id, of the outer custom element in the light DOM whose shadow tree holds the real control. Example: 'nes-button' or '5'")],
-        max_depth: Annotated[int, Field(description="How many nested shadow roots to descend through. Example: 6")] = 6,
+        selector: Annotated[
+            str,
+            Field(
+                description="CSS selector, or a bare numeric id, of the outer custom element in the light DOM whose shadow tree holds the real control. Example: 'nes-button' or '5'"
+            ),
+        ],
+        max_depth: Annotated[
+            int, Field(description="How many nested shadow roots to descend through. Example: 6")
+        ] = 6,
     ) -> str:
         """Click the deepest interactive element inside a custom element's shadow DOM.
 
@@ -92,8 +109,15 @@ class ElementTools(ToolBase):
 
     async def describe_shadow(
         self,
-        selector: Annotated[str, Field(description="CSS selector, or a bare numeric id, of the custom element whose nested shadow tree to dump. Example: 'lion-input' or '9'")],
-        max_depth: Annotated[int, Field(description="How many nested shadow roots to descend through. Example: 6")] = 6,
+        selector: Annotated[
+            str,
+            Field(
+                description="CSS selector, or a bare numeric id, of the custom element whose nested shadow tree to dump. Example: 'lion-input' or '9'"
+            ),
+        ],
+        max_depth: Annotated[
+            int, Field(description="How many nested shadow roots to descend through. Example: 6")
+        ] = 6,
     ) -> dict:
         """Dump a custom element's nested shadow-DOM tree for debugging.
 
@@ -116,8 +140,18 @@ class ElementTools(ToolBase):
 
     async def type_text(
         self,
-        text: Annotated[str, Field(description="Literal text to insert. Inserted as one chunk, so it fires no per-key events. Example: 'user@example.com'")],
-        selector: Annotated[str, Field(description="CSS selector, or a bare numeric id from get_interaction_tree (passed as a string). Example: '#email' or '7'")],
+        text: Annotated[
+            str,
+            Field(
+                description="Literal text to insert. Inserted as one chunk, so it fires no per-key events. Example: 'user@example.com'"
+            ),
+        ],
+        selector: Annotated[
+            str,
+            Field(
+                description="CSS selector, or a bare numeric id from get_interaction_tree (passed as a string). Example: '#email' or '7'"
+            ),
+        ],
     ) -> str:
         """Type text into an input by inserting it via CDP, without executing JavaScript.
 
@@ -141,11 +175,14 @@ class ElementTools(ToolBase):
 
         return f"Typed into {selector}"
 
-
-
     async def clear_input(
         self,
-        selector: Annotated[str, Field(description="CSS selector, or a bare numeric id from get_interaction_tree (passed as a string). Example: '#search' or '3'")],
+        selector: Annotated[
+            str,
+            Field(
+                description="CSS selector, or a bare numeric id from get_interaction_tree (passed as a string). Example: '#search' or '3'"
+            ),
+        ],
     ) -> str:
         """Empty an input, textarea, or contenteditable element.
 
@@ -162,12 +199,19 @@ class ElementTools(ToolBase):
             return f"Error: Element not found - {selector}"
 
         # Select all and delete
-        await elem.apply("(el) => { el.focus(); document.execCommand('selectAll'); document.execCommand('delete'); }")
+        await elem.apply(
+            "(el) => { el.focus(); document.execCommand('selectAll'); document.execCommand('delete'); }"
+        )
         return f"Cleared: {selector}"
 
     async def focus_element(
         self,
-        selector: Annotated[str, Field(description="CSS selector, or a bare numeric id from get_interaction_tree (passed as a string). Example: '#search' or '3'")],
+        selector: Annotated[
+            str,
+            Field(
+                description="CSS selector, or a bare numeric id from get_interaction_tree (passed as a string). Example: '#search' or '3'"
+            ),
+        ],
     ) -> str:
         """Move keyboard focus to an element without clicking it.
 
@@ -184,8 +228,18 @@ class ElementTools(ToolBase):
 
     async def select_option(
         self,
-        selector: Annotated[str, Field(description="CSS selector of the <select> element, or a bare numeric id from get_interaction_tree. Example: '#country' or '9'")],
-        value: Annotated[str, Field(description="The option's value attribute, NOT its visible label. Read the markup with get_content if unsure. Example: 'FI'")],
+        selector: Annotated[
+            str,
+            Field(
+                description="CSS selector of the <select> element, or a bare numeric id from get_interaction_tree. Example: '#country' or '9'"
+            ),
+        ],
+        value: Annotated[
+            str,
+            Field(
+                description="The option's value attribute, NOT its visible label. Read the markup with get_content if unsure. Example: 'FI'"
+            ),
+        ],
     ) -> str:
         """Choose an option in a native <select> dropdown by its value attribute.
 
@@ -209,8 +263,18 @@ class ElementTools(ToolBase):
 
     async def upload_file(
         self,
-        selector: Annotated[str, Field(description="CSS selector of the <input type=\"file\"> element, or a bare numeric id from get_interaction_tree. Example: 'input[type=\"file\"]' or '5'")],
-        file_path: Annotated[str, Field(description="Absolute path to the file, as seen by the machine running this server, not the browser host. Example: '/home/user/documents/id.png'")],
+        selector: Annotated[
+            str,
+            Field(
+                description="CSS selector of the <input type=\"file\"> element, or a bare numeric id from get_interaction_tree. Example: 'input[type=\"file\"]' or '5'"
+            ),
+        ],
+        file_path: Annotated[
+            str,
+            Field(
+                description="Absolute path to the file, as seen by the machine running this server, not the browser host. Example: '/home/user/documents/id.png'"
+            ),
+        ],
     ) -> str:
         """Attach a local file to a file input, without opening the OS file picker.
 

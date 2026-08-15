@@ -1,13 +1,13 @@
 # Runner script for Zendriver MCP server
 import argparse
-import sys
 import os
+import sys
 
 # Add the project directory to the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.tools import mcp
 from src.session import BrowserSession
+from src.tools import mcp
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -51,15 +51,23 @@ class StealthTools(ToolBase):
         except Exception:
             pass  # a probe failure is not proof the challenge is gone; fall through to title
         try:
-            title = (await page.evaluate("document.title") or "")
+            title = await page.evaluate("document.title") or ""
         except Exception:
             return False
-        return "just a moment" not in title.lower()
+        return "just a moment" not in title.lower()  # type: ignore[union-attr]
 
     async def bypass_cloudflare(
         self,
-        timeout: Annotated[float, Field(description="Maximum seconds to keep retrying before raising. Example: 30.0")] = 30.0,
-        click_delay: Annotated[float, Field(description="Seconds to pause before clicking the Turnstile checkbox, mimicking human hesitation. Too short reads as automation. Example: 4.0")] = 4.0,
+        timeout: Annotated[
+            float,
+            Field(description="Maximum seconds to keep retrying before raising. Example: 30.0"),
+        ] = 30.0,
+        click_delay: Annotated[
+            float,
+            Field(
+                description="Seconds to pause before clicking the Turnstile checkbox, mimicking human hesitation. Too short reads as automation. Example: 4.0"
+            ),
+        ] = 4.0,
     ) -> str:
         """Solve a Cloudflare challenge (Turnstile or managed) on the current page.
 
@@ -116,7 +124,12 @@ class StealthTools(ToolBase):
 
     async def is_cloudflare_challenge_present(
         self,
-        timeout: Annotated[float, Field(description="Maximum seconds to look for the challenge before concluding it is absent. Example: 5.0")] = 5.0,
+        timeout: Annotated[
+            float,
+            Field(
+                description="Maximum seconds to look for the challenge before concluding it is absent. Example: 5.0"
+            ),
+        ] = 5.0,
     ) -> bool:
         """Check whether a Cloudflare interactive challenge is currently on screen.
 
@@ -128,9 +141,24 @@ class StealthTools(ToolBase):
 
     async def set_user_agent(
         self,
-        user_agent: Annotated[str, Field(description="Full User-Agent string to send. Example: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'")],
-        accept_language: Annotated[str | None, Field(description="Accept-Language header value. Omit to leave it unchanged. Example: 'en-GB,en;q=0.9'")] = None,
-        platform: Annotated[str | None, Field(description="Value reported by navigator.platform. Should agree with the user_agent or the mismatch is itself a detection signal. Example: 'Win32'")] = None,
+        user_agent: Annotated[
+            str,
+            Field(
+                description="Full User-Agent string to send. Example: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'"
+            ),
+        ],
+        accept_language: Annotated[
+            str | None,
+            Field(
+                description="Accept-Language header value. Omit to leave it unchanged. Example: 'en-GB,en;q=0.9'"
+            ),
+        ] = None,
+        platform: Annotated[
+            str | None,
+            Field(
+                description="Value reported by navigator.platform. Should agree with the user_agent or the mismatch is itself a detection signal. Example: 'Win32'"
+            ),
+        ] = None,
     ) -> str:
         """Override the User-Agent, Accept-Language, and navigator.platform for this tab.
 
@@ -163,7 +191,12 @@ class StealthTools(ToolBase):
 
     async def set_locale(
         self,
-        locale: Annotated[str, Field(description="Locale identifier such as 'en_US' or 'fi_FI'. Pass an empty string to restore the system default. Example: 'en_US'")],
+        locale: Annotated[
+            str,
+            Field(
+                description="Locale identifier such as 'en_US' or 'fi_FI'. Pass an empty string to restore the system default. Example: 'en_US'"
+            ),
+        ],
     ) -> str:
         """Override the browser's reported locale, affecting language and formatting.
 
@@ -177,7 +210,12 @@ class StealthTools(ToolBase):
 
     async def set_timezone(
         self,
-        timezone_id: Annotated[str, Field(description="IANA timezone identifier, not a UTC offset. Pass an empty string to restore the system default. Example: 'Europe/Helsinki'")],
+        timezone_id: Annotated[
+            str,
+            Field(
+                description="IANA timezone identifier, not a UTC offset. Pass an empty string to restore the system default. Example: 'Europe/Helsinki'"
+            ),
+        ],
     ) -> str:
         """Override the browser's reported timezone.
 
@@ -190,9 +228,20 @@ class StealthTools(ToolBase):
 
     async def set_geolocation(
         self,
-        latitude: Annotated[float, Field(description="Latitude in decimal degrees, positive north. Example: 60.1699")],
-        longitude: Annotated[float, Field(description="Longitude in decimal degrees, positive east. Example: 24.9384")],
-        accuracy: Annotated[float, Field(description="Reported accuracy radius in metres. Implausibly small values look synthetic. Example: 100.0")] = 100.0,
+        latitude: Annotated[
+            float,
+            Field(description="Latitude in decimal degrees, positive north. Example: 60.1699"),
+        ],
+        longitude: Annotated[
+            float,
+            Field(description="Longitude in decimal degrees, positive east. Example: 24.9384"),
+        ],
+        accuracy: Annotated[
+            float,
+            Field(
+                description="Reported accuracy radius in metres. Implausibly small values look synthetic. Example: 100.0"
+            ),
+        ] = 100.0,
     ) -> str:
         """Override the position returned by the browser's Geolocation API.
 

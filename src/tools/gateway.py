@@ -9,8 +9,8 @@ import json
 import os
 from typing import Annotated, Any
 
-from pydantic import Field
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
 # Tools kept natively visible so the common browse loop (start -> navigate ->
 # read the interactive tree -> click/type -> read text) never needs a search
@@ -41,7 +41,9 @@ def _param_sig(schema: dict) -> str:
     for name, spec in props.items():
         typ = spec.get("type", spec.get("anyOf", "any"))
         if isinstance(typ, list):
-            typ = "/".join(str(t.get("type", "any")) if isinstance(t, dict) else str(t) for t in typ)
+            typ = "/".join(
+                str(t.get("type", "any")) if isinstance(t, dict) else str(t) for t in typ
+            )
         mark = "" if name in required else "?"
         parts.append(f"{name}{mark}:{typ}")
     return ", ".join(parts)
@@ -80,9 +82,9 @@ def install_gateway(mcp: FastMCP, groups: "dict[str, list[str]]") -> None:
     core + 3 meta-tools instead of the whole set.
     """
     tm = mcp._tool_manager
-    catalog: "dict[str, Any]" = dict(tm._tools)  # name -> Tool, taken post-filter
+    catalog: dict[str, Any] = dict(tm._tools)  # name -> Tool, taken post-filter
 
-    tool_group: "dict[str, str]" = {}
+    tool_group: dict[str, str] = {}
     for g, names in groups.items():
         for n in names:
             tool_group[n] = g
@@ -100,8 +102,18 @@ def install_gateway(mcp: FastMCP, groups: "dict[str, list[str]]") -> None:
             tm.remove_tool(name)
 
     async def search_tools(
-        query: Annotated[str, Field(description="What you want to do, in plain words, e.g. 'read cookies', 'wait for a network request', 'set the timezone', 'take a screenshot'. Example: 'fill a login form'")],
-        limit: Annotated[int, Field(description="Maximum number of matching tools to return, ranked best-first. Example: 8")] = 8,
+        query: Annotated[
+            str,
+            Field(
+                description="What you want to do, in plain words, e.g. 'read cookies', 'wait for a network request', 'set the timezone', 'take a screenshot'. Example: 'fill a login form'"
+            ),
+        ],
+        limit: Annotated[
+            int,
+            Field(
+                description="Maximum number of matching tools to return, ranked best-first. Example: 8"
+            ),
+        ] = 8,
     ) -> str:
         """Find browser tools by capability. THIS SERVER HIDES MOST OF ITS TOOLS behind this search to keep your context small.
 
@@ -135,7 +147,10 @@ def install_gateway(mcp: FastMCP, groups: "dict[str, list[str]]") -> None:
         return "\n".join(lines)
 
     async def describe_tool(
-        name: Annotated[str, Field(description="Exact tool name from a search_tools result. Example: 'set_cookie'")],
+        name: Annotated[
+            str,
+            Field(description="Exact tool name from a search_tools result. Example: 'set_cookie'"),
+        ],
     ) -> str:
         """Show one tool's full description and parameter schema.
 
@@ -153,8 +168,18 @@ def install_gateway(mcp: FastMCP, groups: "dict[str, list[str]]") -> None:
         )
 
     async def call_tool(
-        name: Annotated[str, Field(description="Exact tool name from search_tools/describe_tool. Example: 'get_cookies'")],
-        arguments: Annotated[dict, Field(description="Arguments object for that tool, matching its schema. Pass {} for a no-argument tool. Example: {\"url\": \"https://example.com\"}")] = {},
+        name: Annotated[
+            str,
+            Field(
+                description="Exact tool name from search_tools/describe_tool. Example: 'get_cookies'"
+            ),
+        ],
+        arguments: Annotated[
+            dict,
+            Field(
+                description='Arguments object for that tool, matching its schema. Pass {} for a no-argument tool. Example: {"url": "https://example.com"}'
+            ),
+        ] = {},  # noqa: B006
     ) -> Any:
         """Invoke any of this server's tools by name — the path to every hidden capability.
 

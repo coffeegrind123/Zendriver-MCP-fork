@@ -19,8 +19,18 @@ class ContentTools(ToolBase):
 
     async def get_content(
         self,
-        max_chars: Annotated[int, Field(description="Maximum characters of HTML to return in this call. Pass a larger value or page with offset to read more. Example: 10000")] = 10000,
-        offset: Annotated[int, Field(description="Character offset to start from, for paging through a large page. Example: 0")] = 0,
+        max_chars: Annotated[
+            int,
+            Field(
+                description="Maximum characters of HTML to return in this call. Pass a larger value or page with offset to read more. Example: 10000"
+            ),
+        ] = 10000,
+        offset: Annotated[
+            int,
+            Field(
+                description="Character offset to start from, for paging through a large page. Example: 0"
+            ),
+        ] = 0,
     ) -> str:
         """Get the page's full rendered HTML, including markup and attributes.
 
@@ -35,8 +45,18 @@ class ContentTools(ToolBase):
 
     async def get_text_content(
         self,
-        max_chars: Annotated[int, Field(description="Maximum characters of text to return in this call. Pass a larger value or page with offset to read more. Example: 10000")] = 10000,
-        offset: Annotated[int, Field(description="Character offset to start from, for paging through long text. Example: 0")] = 0,
+        max_chars: Annotated[
+            int,
+            Field(
+                description="Maximum characters of text to return in this call. Pass a larger value or page with offset to read more. Example: 10000"
+            ),
+        ] = 10000,
+        offset: Annotated[
+            int,
+            Field(
+                description="Character offset to start from, for paging through long text. Example: 0"
+            ),
+        ] = 0,
     ) -> str:
         """Get the page's visible text, without any HTML markup.
 
@@ -45,7 +65,7 @@ class ContentTools(ToolBase):
         to interact. Same '[chars X-Y of TOTAL]' pagination contract as
         get_content: the header reports total length and the next offset.
         """
-        text = await self.run_js('document.body.innerText')
+        text = await self.run_js("document.body.innerText")
         return self._paginate(str(text), max_chars, offset)
 
     @staticmethod
@@ -54,7 +74,7 @@ class ContentTools(ToolBase):
         max_chars = max(1, max_chars)
         total = len(text)
         offset = min(max(0, offset), total)
-        chunk = text[offset:offset + max_chars]
+        chunk = text[offset : offset + max_chars]
         end = offset + len(chunk)
         header = f"[chars {offset}-{end} of {total}]"
         if end < total:
@@ -63,7 +83,12 @@ class ContentTools(ToolBase):
 
     async def get_interaction_tree(
         self,
-        limit: Annotated[int, Field(description="Maximum number of interactive elements to return. Raise it on dense pages; a note reports when the cap was hit. Example: 150")] = 150,
+        limit: Annotated[
+            int,
+            Field(
+                description="Maximum number of interactive elements to return. Raise it on dense pages; a note reports when the cap was hit. Example: 150"
+            ),
+        ] = 150,
     ) -> str:
         """List the page's interactive elements, each with a short numeric id.
 
@@ -83,7 +108,7 @@ class ContentTools(ToolBase):
         if not os.path.exists(script_path):
             return "Error: dom_walker.js not found in static/js"
 
-        with open(script_path, "r", encoding="utf-8") as f:
+        with open(script_path, encoding="utf-8") as f:
             js_code = f.read()
 
         try:
@@ -101,8 +126,13 @@ class ContentTools(ToolBase):
 
     async def scroll(
         self,
-        direction: Annotated[Literal["down", "up"], Field(description="Direction to scroll the page. Example: 'down'")] = "down",
-        amount: Annotated[int, Field(description="Distance to scroll in CSS pixels. Example: 500")] = 500,
+        direction: Annotated[
+            Literal["down", "up"],
+            Field(description="Direction to scroll the page. Example: 'down'"),
+        ] = "down",
+        amount: Annotated[
+            int, Field(description="Distance to scroll in CSS pixels. Example: 500")
+        ] = 500,
     ) -> str:
         """Scroll the page vertically by a pixel amount.
 
@@ -121,7 +151,12 @@ class ContentTools(ToolBase):
 
     async def scroll_to_element(
         self,
-        selector: Annotated[str, Field(description="CSS selector of the element to scroll into view. Example: '#checkout-button'")],
+        selector: Annotated[
+            str,
+            Field(
+                description="CSS selector of the element to scroll into view. Example: '#checkout-button'"
+            ),
+        ],
     ) -> str:
         """Smooth-scroll the page until one element is centred in the viewport.
 
@@ -130,5 +165,7 @@ class ContentTools(ToolBase):
         element. Returns a confirmation naming the selector.
         """
         safe_sel = self.escape_js_string(selector)
-        await self.run_js(f'document.querySelector("{safe_sel}")?.scrollIntoView({{behavior: "smooth", block: "center"}})')
+        await self.run_js(
+            f'document.querySelector("{safe_sel}")?.scrollIntoView({{behavior: "smooth", block: "center"}})'
+        )
         return f"Scrolled to: {selector}"

@@ -1,6 +1,6 @@
 # form and input tools - fill form, submit, keyboard, mouse
 import json
-from typing import Annotated, Optional
+from typing import Annotated
 
 from pydantic import Field
 
@@ -20,7 +20,12 @@ class FormTools(ToolBase):
 
     async def fill_form(
         self,
-        form_data: Annotated[str, Field(description="A JSON object string mapping CSS selector to the value to type, NOT a nested object and not field names. Example: '{\"#email\": \"user@example.com\", \"#password\": \"hunter2\"}'")],
+        form_data: Annotated[
+            str,
+            Field(
+                description='A JSON object string mapping CSS selector to the value to type, NOT a nested object and not field names. Example: \'{"#email": "user@example.com", "#password": "hunter2"}\''
+            ),
+        ],
     ) -> str:
         """Fill several form fields in one call, clearing each before typing.
 
@@ -43,7 +48,12 @@ class FormTools(ToolBase):
 
     async def submit_form(
         self,
-        selector: Annotated[str, Field(description="CSS selector of the form element. Defaults to the page's first form. Example: '#login-form'")] = "form",
+        selector: Annotated[
+            str,
+            Field(
+                description="CSS selector of the form element. Defaults to the page's first form. Example: '#login-form'"
+            ),
+        ] = "form",
     ) -> str:
         """Submit a form by calling its native submit() method.
 
@@ -58,8 +68,18 @@ class FormTools(ToolBase):
 
     async def press_key(
         self,
-        key: Annotated[str, Field(description="Key name for named keys ('Enter', 'Tab', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Home', 'End', 'PageUp', 'PageDown'), or a single character for literal keys. Example: 'Enter'")],
-        selector: Annotated[Optional[str], Field(description="CSS selector of the element to send the key to. Omit to target whatever currently has focus. Example: '#search'")] = None,
+        key: Annotated[
+            str,
+            Field(
+                description="Key name for named keys ('Enter', 'Tab', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Home', 'End', 'PageUp', 'PageDown'), or a single character for literal keys. Example: 'Enter'"
+            ),
+        ],
+        selector: Annotated[
+            str | None,
+            Field(
+                description="CSS selector of the element to send the key to. Omit to target whatever currently has focus. Example: '#search'"
+            ),
+        ] = None,
     ) -> str:
         """Press one key with full keydown, keypress, and keyup event simulation.
 
@@ -72,16 +92,28 @@ class FormTools(ToolBase):
 
         # map common key names to their codes
         key_codes = {
-            'Enter': 13, 'Tab': 9, 'Escape': 27, 'Backspace': 8, 'Delete': 46,
-            'ArrowUp': 38, 'ArrowDown': 40, 'ArrowLeft': 37, 'ArrowRight': 39,
-            'Space': 32, ' ': 32, 'Home': 36, 'End': 35, 'PageUp': 33, 'PageDown': 34
+            "Enter": 13,
+            "Tab": 9,
+            "Escape": 27,
+            "Backspace": 8,
+            "Delete": 46,
+            "ArrowUp": 38,
+            "ArrowDown": 40,
+            "ArrowLeft": 37,
+            "ArrowRight": 39,
+            "Space": 32,
+            " ": 32,
+            "Home": 36,
+            "End": 35,
+            "PageUp": 33,
+            "PageDown": 34,
         }
 
         if selector:
             safe_sel = self.escape_js_string(selector)
             target_js = f'document.querySelector("{safe_sel}")'
         else:
-            target_js = 'document.activeElement'
+            target_js = "document.activeElement"
 
         await self.run_js(f'''
             (function() {{
@@ -158,7 +190,12 @@ class FormTools(ToolBase):
 
     async def press_enter(
         self,
-        selector: Annotated[Optional[str], Field(description="CSS selector of the element to send Enter to. Omit to target whatever currently has focus. Example: '#search'")] = None,
+        selector: Annotated[
+            str | None,
+            Field(
+                description="CSS selector of the element to send Enter to. Omit to target whatever currently has focus. Example: '#search'"
+            ),
+        ] = None,
     ) -> str:
         """Press Enter, submitting an enclosing form or activating a button.
 
@@ -171,8 +208,18 @@ class FormTools(ToolBase):
 
     async def mouse_click(
         self,
-        x: Annotated[int, Field(description="Horizontal position in CSS pixels from the viewport's left edge. Example: 640")],
-        y: Annotated[int, Field(description="Vertical position in CSS pixels from the viewport's top edge. Example: 400")],
+        x: Annotated[
+            int,
+            Field(
+                description="Horizontal position in CSS pixels from the viewport's left edge. Example: 640"
+            ),
+        ],
+        y: Annotated[
+            int,
+            Field(
+                description="Vertical position in CSS pixels from the viewport's top edge. Example: 400"
+            ),
+        ],
     ) -> str:
         """Click at absolute viewport coordinates rather than at an element.
 

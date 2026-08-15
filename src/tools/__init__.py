@@ -1,31 +1,32 @@
 # tools package - modular browser automation tools for Zendriver MCP server
 import os
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from src.tools.accessibility import AccessibilityTools
 from src.tools.base import ToolBase
 from src.tools.browser import BrowserTools
-from src.tools.navigation import NavigationTools
-from src.tools.tabs import TabTools
-from src.tools.elements import ElementTools
-from src.tools.query import QueryTools
 from src.tools.content import ContentTools
-from src.tools.storage import StorageTools
-from src.tools.logging import LoggingTools
-from src.tools.forms import FormTools
-from src.tools.utils import UtilityTools
-from src.tools.stealth import StealthTools
-from src.tools.humanlike import HumanInputTools
-from src.tools.emulation import EmulationTools
-from src.tools.devtools import DevToolsTools
-from src.tools.lighthouse import LighthouseTools
-from src.tools.screencast import ScreencastTools
-from src.tools.accessibility import AccessibilityTools
 from src.tools.cookies import CookieTools
+from src.tools.devtools import DevToolsTools
+from src.tools.elements import ElementTools
+from src.tools.emulation import EmulationTools
+from src.tools.forms import FormTools
+from src.tools.humanlike import HumanInputTools
+from src.tools.interception import InterceptionTools
+from src.tools.lighthouse import LighthouseTools
+from src.tools.logging import LoggingTools
+from src.tools.navigation import NavigationTools
 from src.tools.network_control import NetworkControlTools
 from src.tools.permissions import PermissionsTools
 from src.tools.proxy import ProxyTools
-from src.tools.interception import InterceptionTools
+from src.tools.query import QueryTools
+from src.tools.screencast import ScreencastTools
+from src.tools.stealth import StealthTools
+from src.tools.storage import StorageTools
+from src.tools.tabs import TabTools
+from src.tools.utils import UtilityTools
 
 # initialize the MCP server
 mcp = FastMCP("Zendriver MCP")
@@ -60,7 +61,7 @@ _MODULES = [
 ]
 
 _TOOL_GROUPS: dict[str, list[str]] = {}
-_INSTANCES: dict[str, ToolBase] = {}
+_INSTANCES: dict[str, Any] = {}  # values are concrete ToolBase subclasses
 for _group, _cls in _MODULES:
     _before = set(mcp._tool_manager._tools)
     _INSTANCES[_group] = _cls(mcp)
@@ -119,8 +120,28 @@ _PROFILES: dict[str, set[str]] = {
     "browse": {"browser", "navigation", "tabs", "content", "query"},
     "interact": {"browser", "navigation", "tabs", "elements", "query", "content", "forms"},
     "scrape": {"browser", "navigation", "tabs", "content", "query", "logging", "cookies"},
-    "stealth": {"browser", "navigation", "tabs", "elements", "query", "content", "forms", "stealth", "humaninput", "emulation"},
-    "audit": {"browser", "navigation", "content", "query", "logging", "lighthouse", "devtools", "accessibility"},
+    "stealth": {
+        "browser",
+        "navigation",
+        "tabs",
+        "elements",
+        "query",
+        "content",
+        "forms",
+        "stealth",
+        "humaninput",
+        "emulation",
+    },
+    "audit": {
+        "browser",
+        "navigation",
+        "content",
+        "query",
+        "logging",
+        "lighthouse",
+        "devtools",
+        "accessibility",
+    },
     "network": {"browser", "navigation", "logging", "network", "interception", "proxy", "cookies"},
 }
 
@@ -149,7 +170,9 @@ def _apply_tool_filter(server: FastMCP) -> None:
 
     keep: set[str] = set()
     if profile and profile != "full":
-        keep |= {t for g in _PROFILES.get(profile, set(_TOOL_GROUPS)) for t in _TOOL_GROUPS.get(g, [])}
+        keep |= {
+            t for g in _PROFILES.get(profile, set(_TOOL_GROUPS)) for t in _TOOL_GROUPS.get(g, [])
+        }
     for g in groups:
         keep |= set(_TOOL_GROUPS.get(g, []))
     if narrowed:
@@ -171,7 +194,12 @@ _apply_tool_filter(mcp)
 
 # Optional search gateway: hide most tools behind search_tools/describe_tool/
 # call_tool so the client sees ~10 tools instead of ~56 (issue #307 / RAG-MCP).
-_gateway_on = os.environ.get("ZENDRIVER_MCP_GATEWAY", "").strip().lower() in {"1", "true", "yes", "on"}
+_gateway_on = os.environ.get("ZENDRIVER_MCP_GATEWAY", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 if _gateway_on or os.environ.get("ZENDRIVER_MCP_PROFILE", "").strip().lower() == "gateway":
     from src.tools.gateway import install_gateway
 
@@ -266,15 +294,53 @@ __all__ = [
     "FormTools",
     "UtilityTools",
     # individual tool functions
-    "start_browser", "stop_browser", "get_browser_status",
-    "navigate", "go_back", "go_forward", "reload_page", "get_page_info",
-    "new_tab", "list_tabs", "switch_tab", "close_tab",
-    "click", "type_text", "clear_input", "focus_element", "select_option", "upload_file",
-    "find_element", "find_all_elements", "get_element_text", "get_element_attribute",
-    "find_buttons", "find_inputs",
-    "get_content", "get_text_content", "get_interaction_tree", "scroll", "scroll_to_element",
-    "get_cookies", "set_cookie", "get_local_storage", "set_local_storage", "clear_storage",
-    "get_network_logs", "get_console_logs", "clear_logs", "wait_for_network", "wait_for_request",
-    "fill_form", "submit_form", "press_key", "press_enter", "mouse_click",
-    "screenshot", "execute_js", "wait", "wait_for_element", "run_security_audit",
+    "start_browser",
+    "stop_browser",
+    "get_browser_status",
+    "navigate",
+    "go_back",
+    "go_forward",
+    "reload_page",
+    "get_page_info",
+    "new_tab",
+    "list_tabs",
+    "switch_tab",
+    "close_tab",
+    "click",
+    "type_text",
+    "clear_input",
+    "focus_element",
+    "select_option",
+    "upload_file",
+    "find_element",
+    "find_all_elements",
+    "get_element_text",
+    "get_element_attribute",
+    "find_buttons",
+    "find_inputs",
+    "get_content",
+    "get_text_content",
+    "get_interaction_tree",
+    "scroll",
+    "scroll_to_element",
+    "get_cookies",
+    "set_cookie",
+    "get_local_storage",
+    "set_local_storage",
+    "clear_storage",
+    "get_network_logs",
+    "get_console_logs",
+    "clear_logs",
+    "wait_for_network",
+    "wait_for_request",
+    "fill_form",
+    "submit_form",
+    "press_key",
+    "press_enter",
+    "mouse_click",
+    "screenshot",
+    "execute_js",
+    "wait",
+    "wait_for_element",
+    "run_security_audit",
 ]

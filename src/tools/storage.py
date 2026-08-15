@@ -1,5 +1,5 @@
 # storage tools - cookies and localStorage management
-from typing import Annotated, Optional
+from typing import Annotated
 
 from pydantic import Field
 
@@ -24,14 +24,19 @@ class StorageTools(ToolBase):
         deliberately invisible to document.cookie and will NOT appear here.
         Returns one 'name=value; name=value' string, or '(no cookies)'.
         """
-        cookies = await self.run_js('document.cookie')
+        cookies = await self.run_js("document.cookie")
         return cookies if cookies else "(no cookies)"
 
     async def set_cookie(
         self,
         name: Annotated[str, Field(description="Cookie name. Example: 'session_id'")],
         value: Annotated[str, Field(description="Cookie value, unencoded. Example: 'abc123'")],
-        domain: Annotated[Optional[str], Field(description="Domain to scope the cookie to. Omit to scope it to the current page's host. Example: '.example.com'")] = None,
+        domain: Annotated[
+            str | None,
+            Field(
+                description="Domain to scope the cookie to. Omit to scope it to the current page's host. Example: '.example.com'"
+            ),
+        ] = None,
     ) -> str:
         """Set one cookie on the current page via document.cookie.
 
@@ -54,13 +59,18 @@ class StorageTools(ToolBase):
         flags. sessionStorage is not included. Returns a JSON object string, or
         '{}' when the origin has no localStorage entries.
         """
-        storage = await self.run_js('JSON.stringify(localStorage)')
+        storage = await self.run_js("JSON.stringify(localStorage)")
         return storage if storage else "{}"
 
     async def set_local_storage(
         self,
         key: Annotated[str, Field(description="localStorage key to write. Example: 'theme'")],
-        value: Annotated[str, Field(description="Value to store. localStorage holds strings only; serialise objects to JSON yourself. Example: 'dark'")],
+        value: Annotated[
+            str,
+            Field(
+                description="Value to store. localStorage holds strings only; serialise objects to JSON yourself. Example: 'dark'"
+            ),
+        ],
     ) -> str:
         """Write one localStorage item for the current page's origin.
 
@@ -80,5 +90,5 @@ class StorageTools(ToolBase):
         this usually will not log a session out on its own. Returns a
         confirmation string.
         """
-        await self.run_js('localStorage.clear(); sessionStorage.clear()')
+        await self.run_js("localStorage.clear(); sessionStorage.clear()")
         return "Cleared localStorage and sessionStorage"

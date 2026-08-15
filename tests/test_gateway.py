@@ -20,9 +20,7 @@ def _run(code: str, **env_extra: str) -> str:
 
 def test_gateway_exposes_only_core_and_meta() -> None:
     code = (
-        "from src.tools import mcp;"
-        "import json;"
-        "print(json.dumps(sorted(mcp._tool_manager._tools)))"
+        "from src.tools import mcp;import json;print(json.dumps(sorted(mcp._tool_manager._tools)))"
     )
     names = json.loads(_run(code, ZENDRIVER_MCP_GATEWAY="1"))
     assert {"search_tools", "describe_tool", "call_tool"} <= set(names)
@@ -56,11 +54,11 @@ asyncio.run(m())
 
 def test_profile_and_deny_filter() -> None:
     code = (
-        "from src.tools import mcp;"
-        "import json;"
-        "print(json.dumps(sorted(mcp._tool_manager._tools)))"
+        "from src.tools import mcp;import json;print(json.dumps(sorted(mcp._tool_manager._tools)))"
     )
-    names = set(json.loads(_run(code, ZENDRIVER_MCP_PROFILE="browse", ZENDRIVER_MCP_DENY="go_forward")))
+    names = set(
+        json.loads(_run(code, ZENDRIVER_MCP_PROFILE="browse", ZENDRIVER_MCP_DENY="go_forward"))
+    )
     assert "navigate" in names and "get_content" in names
     assert "go_forward" not in names  # denied
     assert "set_cookie" not in names  # storage group not in 'browse'
@@ -70,8 +68,14 @@ def test_profile_and_deny_filter() -> None:
 def test_default_surface_unchanged() -> None:
     code = "from src.tools import mcp; print(len(mcp._tool_manager._tools))"
     # explicitly clear any gateway/profile env for the child
-    env_clear = {k: "" for k in (
-        "ZENDRIVER_MCP_GATEWAY", "ZENDRIVER_MCP_PROFILE",
-        "ZENDRIVER_MCP_GROUPS", "ZENDRIVER_MCP_ALLOW", "ZENDRIVER_MCP_DENY",
-    )}
+    env_clear = {
+        k: ""
+        for k in (
+            "ZENDRIVER_MCP_GATEWAY",
+            "ZENDRIVER_MCP_PROFILE",
+            "ZENDRIVER_MCP_GROUPS",
+            "ZENDRIVER_MCP_ALLOW",
+            "ZENDRIVER_MCP_DENY",
+        )
+    }
     assert _run(code, **env_clear).strip() == "98"

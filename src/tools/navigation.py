@@ -19,7 +19,12 @@ class NavigationTools(ToolBase):
 
     async def navigate(
         self,
-        url: Annotated[str, Field(description="Absolute URL to load, including the scheme. Relative paths and bare hostnames are not resolved. Example: 'https://example.com/pricing'")],
+        url: Annotated[
+            str,
+            Field(
+                description="Absolute URL to load, including the scheme. Relative paths and bare hostnames are not resolved. Example: 'https://example.com/pricing'"
+            ),
+        ],
     ) -> str:
         """Navigate the active tab to a URL and wait for the page to load.
 

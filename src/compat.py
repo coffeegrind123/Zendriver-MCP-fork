@@ -46,9 +46,7 @@ def _safe_transaction_call(self: _zdc.Transaction, **response: Any) -> None:
         )
         self.set_exception(exc)
         return
-    self.set_exception(
-        _zdc.ProtocolException(f"could not parse the cdp response: {response}")
-    )
+    self.set_exception(_zdc.ProtocolException(f"could not parse the cdp response: {response}"))
 
 
 def apply_zendriver_patches() -> None:
