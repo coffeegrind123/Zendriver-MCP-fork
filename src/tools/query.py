@@ -11,12 +11,12 @@ class QueryTools(ToolBase):
 
     def _register_tools(self) -> None:
         """register element query tools"""
-        self._mcp.tool()(self.find_element)
-        self._mcp.tool()(self.find_all_elements)
-        self._mcp.tool()(self.get_element_text)
-        self._mcp.tool()(self.get_element_attribute)
-        self._mcp.tool()(self.find_buttons)
-        self._mcp.tool()(self.find_inputs)
+        self._register(self.find_element)
+        self._register(self.find_all_elements)
+        self._register(self.get_element_text)
+        self._register(self.get_element_attribute)
+        self._register(self.find_buttons)
+        self._register(self.find_inputs)
 
     async def find_element(
         self,

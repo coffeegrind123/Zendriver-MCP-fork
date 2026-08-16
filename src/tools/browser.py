@@ -11,9 +11,9 @@ class BrowserTools(ToolBase):
 
     def _register_tools(self) -> None:
         """register browser lifecycle tools"""
-        self._mcp.tool()(self.start_browser)
-        self._mcp.tool()(self.stop_browser)
-        self._mcp.tool()(self.get_browser_status)
+        self._register(self.start_browser)
+        self._register(self.stop_browser)
+        self._register(self.get_browser_status)
 
     async def start_browser(
         self,

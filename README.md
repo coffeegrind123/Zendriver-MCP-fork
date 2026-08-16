@@ -95,6 +95,73 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
+## HTTP transport — one browser, many callers
+
+stdio spawns a server per client, so the browser dies with the client and two
+clients get two Chromes. `--transport streamable-http` keeps **one** long-lived
+server that anything can call:
+
+```bash
+python run.py --transport streamable-http --host 127.0.0.1 --port 8931
+```
+
+```jsonc
+// any MCP client that speaks HTTP
+{"mcpServers": {"zendriver": {"type": "http", "url": "http://127.0.0.1:8931/mcp"}}}
+```
+
+`BrowserSession` is a process-wide singleton, so the tab, cookies and login
+survive across separate connections — which is what makes a shell wrapper
+possible at all: one command navigates, the next one reads the page.
+
+The default is **stateless** MCP sessions plus JSON responses, so a single POST
+carries a whole tool call with no initialize handshake and no SSE framing:
+
+```bash
+curl -s -X POST http://127.0.0.1:8931/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"navigate","arguments":{"url":"https://example.com"}}}'
+```
+
+Pass `--stateful` for per-client MCP sessions (initialize required, replies framed
+as SSE). Two things worth knowing before you wire this up:
+
+- **`FASTMCP_HOST` / `FASTMCP_PORT` do nothing.** In mcp SDK ≥ 1.28 `FastMCP.__init__`
+  passes its own keyword defaults straight to `Settings`, bypassing the environment;
+  with `FASTMCP_PORT=8931` exported the server binds **8000** and says so. `run.py`
+  therefore sets `mcp.settings` directly.
+- **Terminating the server does not close Chrome.** Call `stop_browser` before you
+  kill it, or the browser is left resident with its profile open.
+
+## Opening the browser on demand
+
+Set `ZENDRIVER_MCP_AUTOSTART_BROWSER=1` and the first tool that needs a browser
+opens one, instead of returning *"Browser not started. Call start_browser
+first."* — one retry, once, then the real error if the launch itself failed.
+
+It exists for the token cost of the alternative: `start_browser` has the largest
+schema on the server (2.3 KB, ~570 tokens), and a client that only wants the
+common browse loop otherwise carries all of it to satisfy a precondition it has
+no decision to make about.
+
+Off by default, deliberately: a client that needs headless, a proxy, or a
+persistent profile must be able to call `start_browser` with its own arguments
+before anything launches Chrome with defaults. `start_browser` itself is never
+auto-retried, so a failing launch reports the launch error rather than looping.
+
+Concurrent first calls are serialised on one lock, so a cold server that gets
+several tool calls at once still launches exactly one browser.
+
+Making this work turned up an older gap: 51 of the 98 tools — including the whole
+browse loop — were registered straight onto FastMCP rather than through
+`ToolBase._register`, so they had neither the auto-start path nor the per-tool
+**time budget** that exists precisely so one hung CDP call cannot freeze the
+session. Every tool now goes through the registrar; the emitted schemas are
+byte-identical before and after (verified by hashing `tools/list` across the
+change).
+
 ## Token Optimization Protocol
 
 ### The Problem

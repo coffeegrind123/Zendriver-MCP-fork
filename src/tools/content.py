@@ -11,11 +11,11 @@ class ContentTools(ToolBase):
 
     def _register_tools(self) -> None:
         """register content tools"""
-        self._mcp.tool()(self.get_content)
-        self._mcp.tool()(self.get_text_content)
-        self._mcp.tool()(self.get_interaction_tree)
-        self._mcp.tool()(self.scroll)
-        self._mcp.tool()(self.scroll_to_element)
+        self._register(self.get_content)
+        self._register(self.get_text_content)
+        self._register(self.get_interaction_tree)
+        self._register(self.scroll)
+        self._register(self.scroll_to_element)
 
     async def get_content(
         self,

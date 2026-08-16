@@ -11,11 +11,11 @@ class StorageTools(ToolBase):
 
     def _register_tools(self) -> None:
         """register storage tools"""
-        self._mcp.tool()(self.get_cookies)
-        self._mcp.tool()(self.set_cookie)
-        self._mcp.tool()(self.get_local_storage)
-        self._mcp.tool()(self.set_local_storage)
-        self._mcp.tool()(self.clear_storage)
+        self._register(self.get_cookies)
+        self._register(self.set_cookie)
+        self._register(self.get_local_storage)
+        self._register(self.set_local_storage)
+        self._register(self.clear_storage)
 
     async def get_cookies(self) -> str:
         """Read the current page's cookies via document.cookie.

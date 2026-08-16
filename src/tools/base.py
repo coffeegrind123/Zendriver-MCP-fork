@@ -10,7 +10,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from src.errors import ElementNotFoundError, ToolTimeoutError
+from src.errors import BrowserNotStartedError, ElementNotFoundError, ToolTimeoutError
 from src.session import BrowserSession
 
 
@@ -23,6 +23,33 @@ def _default_tool_timeout() -> float:
 
 
 DEFAULT_TOOL_TIMEOUT = _default_tool_timeout()
+
+
+def _autostart_enabled() -> bool:
+    return os.environ.get("ZENDRIVER_MCP_AUTOSTART_BROWSER", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+# Opt-in: open the browser on the first tool that needs one, instead of
+# returning "Browser not started. Call start_browser first."
+#
+# Worth having because the alternative costs a client either a wasted turn or a
+# tool schema. start_browser's schema is 2.3 KB (~570 tokens) — the largest on
+# the server — so a client that only wants the common browse loop otherwise pays
+# that just to satisfy a precondition it has no decision to make about.
+#
+# Off by default: a client that manages its own lifecycle (headless, a proxy, a
+# persistent profile) must be able to call start_browser with its own arguments
+# before anything else launches Chrome with defaults.
+AUTOSTART_BROWSER = _autostart_enabled()
+
+# One lock for the process: two concurrent tool calls on a cold session would
+# otherwise both see "no browser" and race two Chrome launches.
+_autostart_lock = asyncio.Lock()
 
 # Must match ``ATTR`` in src/static/js/dom_walker.js.
 ZENDRIVER_ID_ATTR = "data-zendriver-id"
@@ -89,6 +116,21 @@ class ToolBase(ABC):
                 return await asyncio.wait_for(fn(*args, **kwargs), timeout=budget)
             except asyncio.TimeoutError as exc:
                 raise ToolTimeoutError(name, budget) from exc
+            except BrowserNotStartedError:
+                # Retried once, and only once: if the browser still is not there
+                # after a start, something is wrong with the launch and the
+                # caller needs to see that error rather than a loop.
+                if not AUTOSTART_BROWSER or name == "start_browser":
+                    raise
+                async with _autostart_lock:
+                    if self._session.is_running():
+                        pass  # another call won the race and started it
+                    else:
+                        await self._session.start()
+                try:
+                    return await asyncio.wait_for(fn(*args, **kwargs), timeout=budget)
+                except asyncio.TimeoutError as exc:
+                    raise ToolTimeoutError(name, budget) from exc
 
         # Preserve the signature so FastMCP introspects the right schema, and drop
         # __wrapped__ so it doesn't follow back to the unbound function (exposing `self`).

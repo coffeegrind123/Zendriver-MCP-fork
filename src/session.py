@@ -82,6 +82,10 @@ class BrowserSession:
             raise BrowserNotStartedError()
         return self._browser
 
+    def is_running(self) -> bool:
+        """Whether a browser is currently open, without raising if it is not."""
+        return self._browser is not None
+
     @property
     def page(self) -> zd.Tab:
         """Get the current page/tab."""

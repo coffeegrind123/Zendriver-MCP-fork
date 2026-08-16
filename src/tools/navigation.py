@@ -11,11 +11,11 @@ class NavigationTools(ToolBase):
 
     def _register_tools(self) -> None:
         """register navigation tools"""
-        self._mcp.tool()(self.navigate)
-        self._mcp.tool()(self.go_back)
-        self._mcp.tool()(self.go_forward)
-        self._mcp.tool()(self.reload_page)
-        self._mcp.tool()(self.get_page_info)
+        self._register(self.navigate)
+        self._register(self.go_back)
+        self._register(self.go_forward)
+        self._register(self.reload_page)
+        self._register(self.get_page_info)
 
     async def navigate(
         self,

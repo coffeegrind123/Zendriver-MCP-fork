@@ -14,14 +14,14 @@ class ElementTools(ToolBase):
 
     def _register_tools(self) -> None:
         """register element interaction tools"""
-        self._mcp.tool()(self.click)
-        self._mcp.tool()(self.click_shadow)
-        self._mcp.tool()(self.describe_shadow)
-        self._mcp.tool()(self.type_text)
-        self._mcp.tool()(self.clear_input)
-        self._mcp.tool()(self.focus_element)
-        self._mcp.tool()(self.select_option)
-        self._mcp.tool()(self.upload_file)
+        self._register(self.click)
+        self._register(self.click_shadow)
+        self._register(self.describe_shadow)
+        self._register(self.type_text)
+        self._register(self.clear_input)
+        self._register(self.focus_element)
+        self._register(self.select_option)
+        self._register(self.upload_file)
 
     async def click(
         self,

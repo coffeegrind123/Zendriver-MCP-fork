@@ -12,11 +12,11 @@ class LoggingTools(ToolBase):
 
     def _register_tools(self) -> None:
         """register logging tools"""
-        self._mcp.tool()(self.get_network_logs)
-        self._mcp.tool()(self.get_console_logs)
-        self._mcp.tool()(self.clear_logs)
-        self._mcp.tool()(self.wait_for_network)
-        self._mcp.tool()(self.wait_for_request)
+        self._register(self.get_network_logs)
+        self._register(self.get_console_logs)
+        self._register(self.clear_logs)
+        self._register(self.wait_for_network)
+        self._register(self.wait_for_request)
 
     async def get_network_logs(
         self,

@@ -12,11 +12,11 @@ class FormTools(ToolBase):
 
     def _register_tools(self) -> None:
         """register form and input tools"""
-        self._mcp.tool()(self.fill_form)
-        self._mcp.tool()(self.submit_form)
-        self._mcp.tool()(self.press_key)
-        self._mcp.tool()(self.press_enter)
-        self._mcp.tool()(self.mouse_click)
+        self._register(self.fill_form)
+        self._register(self.submit_form)
+        self._register(self.press_key)
+        self._register(self.press_enter)
+        self._register(self.mouse_click)
 
     async def fill_form(
         self,

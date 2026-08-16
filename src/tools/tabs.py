@@ -11,10 +11,10 @@ class TabTools(ToolBase):
 
     def _register_tools(self) -> None:
         """register tab management tools"""
-        self._mcp.tool()(self.new_tab)
-        self._mcp.tool()(self.list_tabs)
-        self._mcp.tool()(self.switch_tab)
-        self._mcp.tool()(self.close_tab)
+        self._register(self.new_tab)
+        self._register(self.list_tabs)
+        self._register(self.switch_tab)
+        self._register(self.close_tab)
 
     async def new_tab(
         self,
