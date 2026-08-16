@@ -86,6 +86,34 @@ class BrowserSession:
         """Whether a browser is currently open, without raising if it is not."""
         return self._browser is not None
 
+    def is_dead(self) -> bool:
+        """A browser was started and its Chrome process is gone.
+
+        The distinction matters: with no browser at all, tools raise
+        ``BrowserNotStartedError`` and say so. When Chrome dies underneath a
+        live session the object is still here, so every call fails instead with
+        a websocket error — ``no close frame received or sent`` — and keeps
+        failing until someone notices.
+        """
+        return self._browser is not None and self._browser.stopped
+
+    def discard(self) -> None:
+        """Drop a dead browser's state without touching the dead process.
+
+        ``stop()`` awaits ``browser.stop()``, which cannot work when Chrome is
+        already gone. This clears the same state so a fresh ``start()`` begins
+        clean, including the per-tool reset callbacks.
+        """
+        self._browser = None
+        self._page = None
+        self._tabs = {}
+        self._network_logs = []
+        self._console_logs = []
+        self._pending_requests = {}
+        self._cdp_enabled_tabs = {}
+        self._loaded_extensions = []
+        self._run_reset_callbacks()
+
     @property
     def page(self) -> zd.Tab:
         """Get the current page/tab."""

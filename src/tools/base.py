@@ -131,6 +131,28 @@ class ToolBase(ABC):
                     return await asyncio.wait_for(fn(*args, **kwargs), timeout=budget)
                 except asyncio.TimeoutError as exc:
                     raise ToolTimeoutError(name, budget) from exc
+            except Exception:
+                # Chrome died underneath a live session — crash, OOM kill, a user
+                # closing the window. The session still holds a Browser object,
+                # so this arrives as a websocket error rather than
+                # BrowserNotStartedError, and every later call fails the same way
+                # until someone restarts it by hand.
+                #
+                # is_dead() is the whole guard: an ordinary tool failure with a
+                # healthy browser is re-raised untouched.
+                if not AUTOSTART_BROWSER or name == "start_browser":
+                    raise
+                if not self._session.is_dead():
+                    raise
+                async with _autostart_lock:
+                    if self._session.is_dead():
+                        self._session.discard()
+                    if not self._session.is_running():
+                        await self._session.start()
+                try:
+                    return await asyncio.wait_for(fn(*args, **kwargs), timeout=budget)
+                except asyncio.TimeoutError as exc:
+                    raise ToolTimeoutError(name, budget) from exc
 
         # Preserve the signature so FastMCP introspects the right schema, and drop
         # __wrapped__ so it doesn't follow back to the unbound function (exposing `self`).

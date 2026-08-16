@@ -75,6 +75,80 @@ def test_enabled_starts_the_browser_once_and_retries() -> None:
     assert result["starts"] == 1, result
 
 
+DEAD_HARNESS = """
+import asyncio, json
+from src.session import BrowserSession
+from src.tools.base import ToolBase
+from mcp.server.fastmcp import FastMCP
+
+starts = []
+session = BrowserSession.get_instance()
+
+class DeadBrowser:
+    stopped = True          # what zendriver reports once Chrome's process is gone
+
+class LiveBrowser:
+    stopped = False
+
+async def fake_start(*a, **k):
+    starts.append(1)
+    session._browser = LiveBrowser()
+    return session._browser
+
+session.start = fake_start
+session._browser = DeadBrowser()
+
+calls = []
+
+class Probe(ToolBase):
+    def _register_tools(self):
+        self._register(self.needs_live_browser)
+
+    async def needs_live_browser(self) -> str:
+        calls.append(1)
+        # The real failure mode: a websocket error, not BrowserNotStartedError.
+        if getattr(self._session._browser, "stopped", False):
+            raise RuntimeError("no close frame received or sent")
+        return "ok"
+
+mcp = FastMCP("test")
+probe = Probe(mcp)
+
+async def main():
+    try:
+        out = await mcp._tool_manager._tools["needs_live_browser"].fn()
+    except Exception as e:
+        out = f"RAISED:{type(e).__name__}:{e}"
+    print(json.dumps({"out": out, "starts": len(starts), "calls": len(calls)}))
+
+asyncio.run(main())
+"""
+
+
+def _run_source(source: str, **env_extra: str) -> dict:
+    import json
+
+    env = dict(os.environ)
+    env.pop("ZENDRIVER_MCP_AUTOSTART_BROWSER", None)
+    env.update(env_extra)
+    raw = subprocess.check_output([sys.executable, "-c", source], env=env, cwd=ROOT).decode()
+    return json.loads(raw.strip().splitlines()[-1])
+
+
+def test_a_dead_chrome_is_replaced_and_the_call_retried() -> None:
+    """Chrome crashing must not leave every later call failing on a websocket."""
+    result = _run_source(DEAD_HARNESS, ZENDRIVER_MCP_AUTOSTART_BROWSER="1")
+    assert result["out"] == "ok", result
+    assert result["starts"] == 1, result
+    assert result["calls"] == 2, result  # the failure, then the retry
+
+
+def test_a_dead_chrome_is_left_alone_when_autostart_is_off() -> None:
+    result = _run_source(DEAD_HARNESS)
+    assert result["out"].startswith("RAISED:RuntimeError:no close frame"), result
+    assert result["starts"] == 0, result
+
+
 def test_start_browser_itself_is_never_auto_started() -> None:
     """Otherwise a failing launch would be retried inside its own error path."""
     harness = HARNESS.replace("needs_browser", "start_browser")

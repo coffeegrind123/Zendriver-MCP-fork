@@ -154,6 +154,15 @@ auto-retried, so a failing launch reports the launch error rather than looping.
 Concurrent first calls are serialised on one lock, so a cold server that gets
 several tool calls at once still launches exactly one browser.
 
+The same switch also covers Chrome **dying** under a live session — a crash, an
+OOM kill, someone closing the window. That case does not raise "Browser not
+started": the session still holds a Browser object, so it surfaces as
+`no close frame received or sent` and every later call fails the same way until
+somebody restarts it by hand. When `zendriver.Browser.stopped` says the process
+is gone, the session is discarded, a fresh browser is started, and the call is
+retried once. An ordinary tool failure against a healthy browser is re-raised
+untouched — that check is the whole guard.
+
 Making this work turned up an older gap: 51 of the 98 tools — including the whole
 browse loop — were registered straight onto FastMCP rather than through
 `ToolBase._register`, so they had neither the auto-start path nor the per-tool
