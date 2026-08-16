@@ -16,6 +16,11 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          # This repo has no uv.lock, and the action's default cache key glob is
+          # **/uv.lock — "No matches found for glob" is a hard error, so every
+          # run since caching was turned on died before installing anything.
+          # Key the cache off the file that does declare the dependencies.
+          cache-dependency-glob: "pyproject.toml"
 
       - name: Set up Python
         run: uv python install 3.12
