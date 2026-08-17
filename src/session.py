@@ -563,6 +563,36 @@ class BrowserSession:
             result[tab_id] = url
         return result
 
+    async def wait_for_document_ready(self, timeout: float = 10.0) -> tuple[bool, float]:
+        """Block until the document reports `readyState == "complete"`.
+
+        Network idle alone is not enough to say a page has loaded, and trusting
+        it produced a real failure: `navigate` returned "network idle after 0.5s"
+        — exactly `idle_time`, meaning the very first sample already looked
+        quiet — and the next `get_text_content` threw
+        `TypeError: Cannot read properties of null (reading 'innerText')`,
+        because `document.body` did not exist yet.
+
+        The race is that CDP network events for a navigation do not necessarily
+        appear before the first poll. An idle detector that has not yet seen the
+        page start cannot tell "finished" from "not begun": both are a request
+        count that is not moving. Document readiness can tell them apart, so it
+        is checked first and the idle wait then measures what happens after.
+        """
+        start = time.monotonic()
+        while True:
+            try:
+                state = await self.page.evaluate("document.readyState")
+            except Exception:
+                # Mid-navigation the context can be torn down; that is not a
+                # failure, it is the page being replaced. Try again.
+                state = None
+            if state == "complete":
+                return True, time.monotonic() - start
+            if time.monotonic() - start >= timeout:
+                return False, time.monotonic() - start
+            await self.page.wait(0.1)
+
     async def wait_for_network_idle(
         self, timeout: float = 10.0, idle_time: float = 0.5
     ) -> tuple[bool, float, int]:

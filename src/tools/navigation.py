@@ -45,11 +45,25 @@ class NavigationTools(ToolBase):
         await self.session.navigate(url)
         if settle <= 0:
             return f"Navigated to {url} (no settle requested)"
-        idle, elapsed, count = await self.session.wait_for_network_idle(timeout=settle)
+
+        # Document readiness FIRST, then network idle. Idle alone cannot tell
+        # "the page finished" from "the page has not started" — both look like a
+        # request count that is not moving — and getting that wrong returns a
+        # page whose `document.body` is still null.
+        ready, ready_elapsed = await self.session.wait_for_document_ready(timeout=settle)
+        remaining = max(0.0, settle - ready_elapsed)
+        if not ready:
+            return (
+                f"Navigated to {url} (document still loading after {ready_elapsed:.1f}s — "
+                "content may be incomplete)"
+            )
+
+        idle, elapsed, count = await self.session.wait_for_network_idle(timeout=remaining)
+        total = ready_elapsed + elapsed
         state = (
-            f"network idle after {elapsed:.1f}s"
+            f"network idle after {total:.1f}s"
             if idle
-            else f"network still active after {elapsed:.1f}s"
+            else f"network still active after {total:.1f}s"
         )
         return f"Navigated to {url} ({state}, {count} requests)"
 

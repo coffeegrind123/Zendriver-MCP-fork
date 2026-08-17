@@ -108,3 +108,41 @@ def test_none_text_does_not_crash_pagination() -> None:
     )
     out = asyncio.run(tools.get_text_content())
     assert out.startswith("[chars 0-0 of 0]")
+
+
+def test_a_missing_body_is_diagnosed_rather_than_thrown() -> None:
+    """The regression.
+
+    `document.body.innerText` THROWS when the body does not exist, and the caller
+    got a CDP stack trace plus a parameter dump:
+
+        TypeError: Cannot read properties of null (reading 'innerText')
+        Expected parameters: max_chars (integer) ...
+
+    Nothing in that names the actual problem — the page had not finished
+    loading — and it reads as a bad argument, which is the one thing it is not.
+    The read is null-safe now, so the diagnosis below gets to speak.
+    """
+    tools = _tools(
+        {"readyState": "loading", "url": "https://x.test/", "hasBody": False, "htmlChars": 0},
+        text="",
+    )
+    out = asyncio.run(tools.get_text_content())
+    assert out.startswith("[chars 0-0 of 0]")
+    assert "still loading" in out
+    assert "innerText" not in out, "a TypeError must never reach the caller"
+
+
+def test_the_extraction_script_itself_cannot_throw_on_a_null_body() -> None:
+    # Guards the shape of the JS, not just its result: reverting to
+    # `document.body.innerText` would reintroduce the exception.
+    seen: list[str] = []
+
+    async def run_js(script: str):
+        seen.append(script)
+        return ""
+
+    tools = ContentTools.__new__(ContentTools)
+    tools.run_js = run_js  # type: ignore[method-assign]
+    asyncio.run(tools.get_text_content())
+    assert "document.body ?" in seen[0], f"extraction must be null-safe, got {seen[0]!r}"

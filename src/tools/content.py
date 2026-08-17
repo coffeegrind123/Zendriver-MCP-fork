@@ -65,7 +65,14 @@ class ContentTools(ToolBase):
         to interact. Same '[chars X-Y of TOTAL]' pagination contract as
         get_content: the header reports total length and the next offset.
         """
-        text = await self.run_js("document.body.innerText")
+        # Null-safe on purpose. `document.body.innerText` THROWS when the body
+        # does not exist yet, and a thrown CDP exception reaches the caller as a
+        # stack trace plus a parameter dump — which says nothing about the page
+        # and sends them looking for a bad argument. Observed for real:
+        # `TypeError: Cannot read properties of null (reading 'innerText')` on a
+        # page that had simply not finished loading. Returning empty lets the
+        # diagnosis below say which of the possible causes it actually is.
+        text = await self.run_js("document.body ? document.body.innerText : ''")
         rendered = self._paginate(str(text or ""), max_chars, offset)
         if text:
             return rendered

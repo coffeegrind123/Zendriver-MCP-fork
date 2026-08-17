@@ -35,7 +35,20 @@ from src.tools.navigation import NavigationTools
 class _FakePage:
     """Advances a scripted network log every time the waiter sleeps."""
 
-    def __init__(self, session: _FakeSession, per_tick: int, ticks: int | None) -> None:
+    def __init__(
+        self,
+        session: _FakeSession,
+        per_tick: int,
+        ticks: int | None,
+        ready_after: int | None = 0,
+    ) -> None:
+        # Polls of document.readyState before it reports "complete". 0 means the
+        # document was ready immediately; None means it never becomes ready.
+        # A large finite number will NOT stand in for that — the waiter spins far
+        # faster than real time here and would burn through it inside the
+        # timeout, which is the same trap the `ticks` script has.
+        self._ready_after = ready_after
+        self._ready_polls = 0
         self._session = session
         self._per_tick = per_tick
         # None means "never stops" — a page that polls or streams. A finite count
@@ -43,6 +56,14 @@ class _FakePage:
         # here, so any finite script runs dry and the network looks settled.
         self._ticks = ticks
         self.waits = 0
+
+    async def evaluate(self, script: str):
+        if "readyState" in script:
+            self._ready_polls += 1
+            if self._ready_after is None:
+                return "loading"
+            return "complete" if self._ready_polls > self._ready_after else "loading"
+        return None
 
     async def wait(self, _seconds: float) -> None:
         self.waits += 1
@@ -59,9 +80,17 @@ class _FakeSession:
 
     wait_for_network_idle = BrowserSession.wait_for_network_idle
 
-    def __init__(self, per_tick: int = 0, ticks: int | None = 0, preloaded: int = 0) -> None:
+    wait_for_document_ready = BrowserSession.wait_for_document_ready
+
+    def __init__(
+        self,
+        per_tick: int = 0,
+        ticks: int | None = 0,
+        preloaded: int = 0,
+        ready_after: int | None = 0,
+    ) -> None:
         self._network_logs: list[dict[str, Any]] = [{"url": "seed"}] * preloaded
-        self.page = _FakePage(self, per_tick, ticks)
+        self.page = _FakePage(self, per_tick, ticks, ready_after)
         self.navigated: list[str] = []
 
     async def navigate(self, url: str) -> None:
@@ -137,3 +166,39 @@ def test_settle_zero_skips_the_wait_entirely() -> None:
 def test_navigate_no_longer_promises_a_wait_it_does_not_perform() -> None:
     doc = NavigationTools.navigate.__doc__ or ""
     assert "do NOT need a separate wait" in doc
+
+
+# --- the regression: idle cannot tell "finished" from "not started" -----------
+
+
+def test_document_readiness_is_awaited_before_the_idle_wait() -> None:
+    """The bug this exists for.
+
+    A real run returned `network idle after 0.5s, 322 requests` — 0.5s is exactly
+    `idle_time`, so the very first sample already looked quiet and none of the
+    navigation's own traffic was ever observed. The next `get_text_content`
+    threw `TypeError: Cannot read properties of null (reading 'innerText')`,
+    because `document.body` did not exist yet.
+
+    A page that is not ready must not be reported as settled, however quiet the
+    network happens to look.
+    """
+    session = _FakeSession(per_tick=0, ticks=0, ready_after=3)
+    out = asyncio.run(_make(session).navigate("https://example.com/slow", settle=5))
+    # The document became ready, so the settle is honest about having waited.
+    assert "network idle after" in out
+    assert session.page._ready_polls > 3, "readyState must actually have been polled"
+
+
+def test_a_document_that_never_becomes_ready_is_reported_not_claimed_settled() -> None:
+    session = _FakeSession(per_tick=0, ticks=0, ready_after=None)
+    out = asyncio.run(_make(session).navigate("https://example.com/hang", settle=0.3))
+    assert "document still loading" in out
+    assert "network idle" not in out, "an unready document must never read as settled"
+
+
+def test_wait_for_document_ready_reports_both_outcomes() -> None:
+    ready, _ = asyncio.run(_FakeSession(ready_after=2).wait_for_document_ready(timeout=5))
+    assert ready is True
+    never, _ = asyncio.run(_FakeSession(ready_after=None).wait_for_document_ready(timeout=0.3))
+    assert never is False
