@@ -11,19 +11,29 @@ This guide helps LLMs (like Claude) understand how to use Zendriver MCP tools fo
 **Always follow this sequence:**
 
 1. **Start browser first**: Call `start_browser` before any other tool
-2. **Navigate to page**: Call `navigate` with the target URL
-3. **Wait for load**: Use `wait` (1-2 seconds) after navigation
-4. **Then interact**: Now you can click, type, screenshot, etc.
-5. **Stop when done**: Call `stop_browser` to clean up
+2. **Navigate to page**: Call `navigate` with the target URL — it waits for the
+   network to go quiet before returning, so **no separate wait is needed**
+3. **Then interact**: Now you can click, type, screenshot, etc.
+4. **Stop when done**: Call `stop_browser` to clean up
 
 ### Example Flow:
 ```
 1. start_browser()
-2. navigate("https://example.com")
-3. wait(2)
-4. screenshot()  # or other actions
-5. stop_browser()
+2. navigate("https://example.com")   # returns once the page has settled
+3. screenshot()  # or other actions
+4. stop_browser()
 ```
+
+`navigate` reports how the settle ended, e.g. `(network idle after 0.6s, 246
+requests)` or `(network still active after 10.0s, ...)`. The second is normal for
+a page that polls or streams and usually still reads fine. Pass `settle=0` to
+return the instant navigation commits, when you do not intend to read the page.
+
+Reach for an explicit wait only when `navigate`'s own settle is not the right
+condition: `wait_for_element` for something that appears after a click,
+`wait_for_request` for one known API call, `wait_for_network` after an
+interaction that triggers more traffic. A blind `wait(2)` is the last resort —
+it is slower than settling on a fast page and too short on a slow one.
 
 ---
 
@@ -226,7 +236,8 @@ remove_element(selector=".cookie-banner")
 ## Best Practices
 
 1. **Always start/stop browser** - Don't leave browsers running
-2. **Use waits after navigation** - Pages need time to load
+2. **Do not add a wait after `navigate`** - it already settles the page; add an
+   explicit wait only after a click or an action that starts new requests
 3. **Take screenshots for verification** - Visual confirmation helps
 4. **Handle errors gracefully** - Elements may not always exist
 5. **Be specific with selectors** - Avoid ambiguous matches

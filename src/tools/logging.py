@@ -104,30 +104,10 @@ class LoggingTools(ToolBase):
         request matters. Returns how long it took plus the request count, or a
         timeout message — a timeout is not an error, just an unsettled page.
         """
-        start = time.time()
-        last_count = 0
-        idle_start = None
-
-        while time.time() - start < timeout:
-            logs = self.session.get_network_logs(100)
-            current_count = len(logs)
-
-            if current_count == last_count:
-                # no new requests
-                if idle_start is None:
-                    idle_start = time.time()
-                elif time.time() - idle_start >= idle_time:
-                    # network has been idle long enough
-                    elapsed = time.time() - start
-                    return f"Network idle after {elapsed:.1f}s ({current_count} requests captured)"
-            else:
-                # new request came in, reset idle timer
-                idle_start = None
-                last_count = current_count
-
-            await self.session.page.wait(0.1)
-
-        return f"Timeout after {timeout}s - network may still be active ({last_count} requests captured)"
+        idle, elapsed, count = await self.session.wait_for_network_idle(timeout, idle_time)
+        if idle:
+            return f"Network idle after {elapsed:.1f}s ({count} requests captured)"
+        return f"Timeout after {timeout}s - network may still be active ({count} requests captured)"
 
     async def wait_for_request(
         self,

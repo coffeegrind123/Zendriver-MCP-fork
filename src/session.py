@@ -4,6 +4,7 @@
 import logging
 import os
 import sys
+import time
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -561,6 +562,43 @@ class BrowserSession:
             url = getattr(tab, "url", "unknown")
             result[tab_id] = url
         return result
+
+    async def wait_for_network_idle(
+        self, timeout: float = 10.0, idle_time: float = 0.5
+    ) -> tuple[bool, float, int]:
+        """Block until no new network request has been seen for ``idle_time`` seconds.
+
+        Returns ``(idle, elapsed, requests)``. ``idle`` is False when ``timeout``
+        was reached with the network still busy — that is a normal outcome for a
+        page that polls or streams, not an error.
+
+        This is the shared implementation behind both the ``wait_for_network``
+        tool and the settle step in ``navigate``. It lives on the session because
+        those two must not drift apart: a navigate that settled differently from
+        an explicit wait would make the explicit wait look broken.
+        """
+        start = time.monotonic()
+        last_count = len(self._network_logs)
+        idle_start: float | None = None
+
+        while True:
+            now = time.monotonic()
+            elapsed = now - start
+            current_count = len(self._network_logs)
+
+            if current_count == last_count:
+                if idle_start is None:
+                    idle_start = now
+                elif now - idle_start >= idle_time:
+                    return True, elapsed, current_count
+            else:
+                idle_start = None
+                last_count = current_count
+
+            if elapsed >= timeout:
+                return False, elapsed, current_count
+
+            await self.page.wait(0.1)
 
     def get_network_logs(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get recent network logs."""

@@ -66,7 +66,53 @@ class ContentTools(ToolBase):
         get_content: the header reports total length and the next offset.
         """
         text = await self.run_js("document.body.innerText")
-        return self._paginate(str(text), max_chars, offset)
+        rendered = self._paginate(str(text or ""), max_chars, offset)
+        if text:
+            return rendered
+        # An empty result is the one answer this tool cannot leave ambiguous.
+        # "[chars 0-0 of 0]" reads as "this page has no text", and a caller that
+        # believes it goes looking for a consent wall or a different source. The
+        # usual cause is that nothing has rendered yet, which is a completely
+        # different fix, so say which one it is.
+        return f"{rendered}\n{await self._empty_text_diagnosis()}"
+
+    async def _empty_text_diagnosis(self) -> str:
+        """Explain an empty innerText: not-yet-rendered, no body, or genuinely blank."""
+        try:
+            info = await self.run_js("""
+                (function() {
+                    return {
+                        readyState: document.readyState,
+                        url: location.href,
+                        hasBody: !!document.body,
+                        htmlChars: (document.documentElement
+                            ? document.documentElement.outerHTML.length : 0),
+                    };
+                })()
+            """)
+        except Exception as exc:  # the diagnosis must never replace the result with an error
+            return f"(no visible text; could not diagnose: {exc})"
+
+        if not isinstance(info, dict):
+            return "(no visible text; page did not answer a diagnostic query)"
+
+        ready = info.get("readyState", "unknown")
+        html_chars = info.get("htmlChars", 0)
+        detail = f"readyState={ready}, html={html_chars} chars, url={info.get('url', 'unknown')}"
+        if ready != "complete":
+            return (
+                f"(no visible text yet — the page is still loading: {detail}. "
+                "Call wait_for_network or navigate with a larger settle, then read again.)"
+            )
+        if not info.get("hasBody"):
+            return f"(no visible text — the document has no body element: {detail})"
+        if html_chars > 2000:
+            return (
+                f"(no visible text, but the page has markup: {detail}. "
+                "The text may be in an iframe, a shadow root, or hidden by CSS — "
+                "try get_content or get_interaction_tree.)"
+            )
+        return f"(no visible text — the page really is blank: {detail})"
 
     @staticmethod
     def _paginate(text: str, max_chars: int, offset: int) -> str:

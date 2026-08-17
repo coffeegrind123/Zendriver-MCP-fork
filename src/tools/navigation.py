@@ -25,15 +25,33 @@ class NavigationTools(ToolBase):
                 description="Absolute URL to load, including the scheme. Relative paths and bare hostnames are not resolved. Example: 'https://example.com/pricing'"
             ),
         ],
+        settle: Annotated[
+            float,
+            Field(
+                description="Seconds to keep waiting for the network to go quiet after the page commits, so the very next read sees rendered content. 0 returns immediately. Example: 10.0"
+            ),
+        ] = 10.0,
     ) -> str:
-        """Navigate the active tab to a URL and wait for the page to load.
+        """Navigate the active tab to a URL, then wait for it to finish rendering.
 
         Use this before any element query, click, or content read — those tools
         fail if no page is loaded. Call start_browser first if the browser is not
-        running. Returns a confirmation string naming the URL that was loaded.
+        running. You do NOT need a separate wait after this: the settle step is
+        built in, so get_text_content straight afterwards sees the loaded page.
+        Returns the URL plus how the settle ended, e.g. 'network idle after 0.6s'
+        or 'still active after 10.0s' — the latter is normal for a page that
+        polls or streams, and the content is usually readable anyway.
         """
         await self.session.navigate(url)
-        return f"Navigated to {url}"
+        if settle <= 0:
+            return f"Navigated to {url} (no settle requested)"
+        idle, elapsed, count = await self.session.wait_for_network_idle(timeout=settle)
+        state = (
+            f"network idle after {elapsed:.1f}s"
+            if idle
+            else f"network still active after {elapsed:.1f}s"
+        )
+        return f"Navigated to {url} ({state}, {count} requests)"
 
     async def go_back(self) -> str:
         """Go back one entry in the active tab's history, as the browser back button does.
