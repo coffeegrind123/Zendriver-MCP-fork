@@ -10,7 +10,12 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from src.errors import BrowserNotStartedError, ElementNotFoundError, ToolTimeoutError
+from src.errors import (
+    BrowserNotStartedError,
+    ElementNotFoundError,
+    ToolTimeoutError,
+    ZendriverMCPError,
+)
 from src.session import BrowserSession
 
 # How long a single JavaScript evaluation may take before it is called hung.
@@ -59,6 +64,31 @@ _autostart_lock = asyncio.Lock()
 
 # Must match ``ATTR`` in src/static/js/dom_walker.js.
 ZENDRIVER_ID_ATTR = "data-zendriver-id"
+
+
+def _timeout_error(name: str, budget: float, elapsed: float, exc: BaseException) -> BaseException:
+    """Tell "the tool ran too long" apart from "something inside it timed out".
+
+    They arrive as the same exception type and mean opposite things. zendriver
+    signals a MISS as a timeout — `find(text=...)` raises
+    `asyncio.TimeoutError("Timeout (10s) waiting for any element with text: ...")`
+    when nothing matches — so reporting every asyncio.TimeoutError as the tool's
+    own budget turns "no element matched" into "the tool was too slow".
+
+    Observed: a click that returned in 10.4s reported "exceeded its 25s time
+    budget". The caller read that as a slow browser and spent several turns
+    retrying, guessing URLs and falling back to curl. The element simply was not
+    there, which zendriver had said clearly and this had thrown away.
+
+    Elapsed time is what separates them: the outer wait_for cannot fire early.
+    """
+    if elapsed < budget * 0.9:
+        message = str(exc).strip() or "an internal operation timed out"
+        return ZendriverMCPError(
+            f"{message} (this is not the tool's {budget:.0f}s budget — it returned "
+            f"after {elapsed:.1f}s, so the operation itself gave up)"
+        )
+    return ToolTimeoutError(name, budget)
 
 
 class ToolBase(ABC):
@@ -118,10 +148,11 @@ class ToolBase(ABC):
 
         @functools.wraps(fn)
         async def guarded(*args: Any, **kwargs: Any) -> Any:
+            started = time.monotonic()
             try:
                 return await asyncio.wait_for(fn(*args, **kwargs), timeout=budget)
             except asyncio.TimeoutError as exc:
-                raise ToolTimeoutError(name, budget) from exc
+                raise _timeout_error(name, budget, time.monotonic() - started, exc) from exc
             except BrowserNotStartedError:
                 # Retried once, and only once: if the browser still is not there
                 # after a start, something is wrong with the launch and the
@@ -133,10 +164,11 @@ class ToolBase(ABC):
                         pass  # another call won the race and started it
                     else:
                         await self._session.start()
+                retried = time.monotonic()
                 try:
                     return await asyncio.wait_for(fn(*args, **kwargs), timeout=budget)
                 except asyncio.TimeoutError as exc:
-                    raise ToolTimeoutError(name, budget) from exc
+                    raise _timeout_error(name, budget, time.monotonic() - retried, exc) from exc
             except Exception:
                 # Chrome died underneath a live session — crash, OOM kill, a user
                 # closing the window. The session still holds a Browser object,
@@ -155,10 +187,11 @@ class ToolBase(ABC):
                         self._session.discard()
                     if not self._session.is_running():
                         await self._session.start()
+                retried = time.monotonic()
                 try:
                     return await asyncio.wait_for(fn(*args, **kwargs), timeout=budget)
                 except asyncio.TimeoutError as exc:
-                    raise ToolTimeoutError(name, budget) from exc
+                    raise _timeout_error(name, budget, time.monotonic() - retried, exc) from exc
 
         # Preserve the signature so FastMCP introspects the right schema, and drop
         # __wrapped__ so it doesn't follow back to the unbound function (exposing `self`).
