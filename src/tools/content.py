@@ -142,6 +142,12 @@ class ContentTools(ToolBase):
                 description="Maximum number of interactive elements to return. Raise it on dense pages; a note reports when the cap was hit. Example: 150"
             ),
         ] = 150,
+        links: Annotated[
+            bool,
+            Field(
+                description="Include each link's target as 'h' (a path when same-origin). Off by default because it roughly doubles the output; turn it on when you need to follow or identify a link. Example: true"
+            ),
+        ] = False,
     ) -> str:
         """List the page's interactive elements, each with a short numeric id.
 
@@ -152,6 +158,14 @@ class ContentTools(ToolBase):
         navigation or re-render, so re-run after those. Returns compact JSON,
         capped at limit with a note when the cap is hit, or an error string if
         the page could not be analysed.
+
+        Pass links=true to get each link's target as `h` — a path when it is
+        same-origin, a full URL otherwise. Following a link then means a navigate
+        instead of a click-and-hope, which matters when the link text is
+        unhelpful or missing. It is off by default because it roughly doubles the
+        output; measured at +116% on a 125-link search page. Nothing is emitted
+        for javascript: handlers, bare "#" anchors, or links back to the current
+        page, none of which can take you anywhere.
         """
         import json
         import os
@@ -170,6 +184,13 @@ class ContentTools(ToolBase):
             return f"Error analyzing page: {str(e)}"
 
         tree = tree or []
+        # The walker always collects link targets; whether the CALLER pays for
+        # them is decided here, because the cost is in the returned JSON rather
+        # than in the walk.
+        if not links:
+            for element in tree:
+                if isinstance(element, dict):
+                    element.pop("h", None)
         limit = max(1, limit)
         total = len(tree)
         payload = json.dumps(tree[:limit], separators=(",", ":"))

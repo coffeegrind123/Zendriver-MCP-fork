@@ -173,6 +173,43 @@
 
         const o = { id: i, t: t, l: label || `[${n.tagName.toLowerCase()}]`, r: rgn(n) };
 
+        // Link target.
+        //
+        // Without this the tree gives an agent an id and a label and no way to
+        // learn where a link goes, so "open that article" becomes: click it and
+        // hope, or guess the URL. Observed doing exactly that — a link rendered
+        // as `[a]` with no text, then a click that timed out, then three
+        // invented URL slugs that 404ed, then a curl fallback. The href was in
+        // the DOM the whole time.
+        //
+        // Absolute, because a relative one is not usable without also knowing
+        // the page URL, and `n.href` resolves it for us. Skipped when it says
+        // nothing: javascript: handlers, bare "#" anchors, and a href equal to
+        // the current page are all noise on a token budget.
+        if (t === "link" && n.tagName === "A") {
+          const raw = n.getAttribute("href");
+          const resolved = n.href;
+          if (raw && resolved && !/^javascript:/i.test(raw) && raw !== "#") {
+            let u = null;
+            try { u = new URL(resolved); } catch (e) { u = null; }
+            // A link to the page you are already on, fragment or not, is a skip
+            // link or a tab anchor. It cannot take you anywhere.
+            const samePage =
+              u && u.origin === location.origin && u.pathname === location.pathname &&
+              u.search === location.search;
+            if (u && !samePage) {
+              // Same-origin links are emitted as a path. The origin is already
+              // known from the page and repeating it on every link is most of
+              // what this field costs — measured at +116% on the whole tree for
+              // a 125-link search page.
+              const short = u.origin === location.origin
+                ? u.pathname + u.search + u.hash
+                : resolved;
+              o.h = short.length > 200 ? short.slice(0, 200) : short;
+            }
+          }
+        }
+
         // Input type (only non-text)
         if (t === "in" && n.tagName === "INPUT" && n.type && !["text", "search"].includes(n.type)) {
           o.it = n.type;
