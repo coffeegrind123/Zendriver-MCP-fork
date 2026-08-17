@@ -13,6 +13,12 @@ from mcp.server.fastmcp import FastMCP
 from src.errors import BrowserNotStartedError, ElementNotFoundError, ToolTimeoutError
 from src.session import BrowserSession
 
+# How long a single JavaScript evaluation may take before it is called hung.
+# Generous enough for a heavy DOM walk, short enough to stay inside the MCP
+# client's own request timeout (30s in this stack's mcp/adapter.json) so the
+# caller gets a real message instead of a transport timeout.
+JS_TIMEOUT_SECONDS = 20.0
+
 
 def _default_tool_timeout() -> float:
     raw = os.environ.get("ZENDRIVER_MCP_TOOL_TIMEOUT", "120")
@@ -197,9 +203,25 @@ class ToolBase(ABC):
             raise ElementNotFoundError(f"text='{text}'")
         return elem
 
-    async def run_js(self, script: str) -> Any:
-        """execute JavaScript and return result"""
-        return await self._session.page.evaluate(script)
+    async def run_js(self, script: str, timeout: float = JS_TIMEOUT_SECONDS) -> Any:
+        """Execute JavaScript and return the result, refusing to hang forever.
+
+        `page.evaluate()` can stop returning altogether. Observed on a real tab
+        that had been left mid-navigation: `get_page_info` answered in 0.4s (it
+        reads cached attributes and makes no CDP round trip) while
+        `get_text_content` never came back at all, because every JS evaluation
+        against that tab hung. From the caller's side that is not an error, it is
+        silence — the MCP request times out and returns a parameter dump, which
+        says nothing about the browser and reads as a bad argument.
+
+        A bound turns that into a sentence naming the real problem. It has to
+        live here rather than in each tool: every JS-based tool shares the
+        failure, and the ones that need longer can ask for it.
+        """
+        try:
+            return await asyncio.wait_for(self._session.page.evaluate(script), timeout=timeout)
+        except (TimeoutError, asyncio.TimeoutError) as exc:
+            raise ToolTimeoutError("run_js", timeout) from exc
 
     async def check_visibility(self, selector: str) -> dict:
         """check if element exists and is visible"""
