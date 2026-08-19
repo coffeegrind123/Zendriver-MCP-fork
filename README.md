@@ -171,6 +171,72 @@ session. Every tool now goes through the registrar; the emitted schemas are
 byte-identical before and after (verified by hashing `tools/list` across the
 change).
 
+## When Chrome will not start
+
+A launch that fails has to *say so*, in the same turn, in words the caller can
+act on. It did not, and the way it failed is worth recording because every part
+of it looked like something else.
+
+Measured 2026-08-19 on this stack's container host, with `DISPLAY=:99` exported
+and the Xvfb that once served it long dead (its socket file still sitting in
+`/tmp/.X11-unix/`, which is why every existence check said the display was
+fine):
+
+| time | what happened |
+| --- | --- |
+| `16:25:37.435` | Chrome starts, and exits 40 ms later: *"Missing X server or `$DISPLAY`"*, *"The platform failed to initialize. Exiting."* |
+| `16:26:02` | the 25 s tool budget expires; `asyncio.wait_for` cancels the call. The client's entire error is **"Request timed out"** |
+| `16:26:18` | zendriver's connect loop (`browser_connection_timeout × browser_connection_max_tries` = 41 s) finally gives up, reads that stderr, and logs it — 16 seconds after the only person who wanted it had gone |
+
+Three separate defects, and each one alone was enough to lose the message:
+
+1. **The connect loop never looked at the child.** All 41 seconds were spent
+   polling a CDP port belonging to a process that had already exited.
+2. **The launch outlived the tool budget**, so the diagnosis was cancelled a few
+   seconds before it existed.
+3. **The exception said none of it.** Upstream logs Chrome's stderr at `INFO`
+   and then raises a fixed guess — *"could be when you are running as root … pass
+   `no_sandbox=True`"* — which is wrong here twice over, since this server
+   already passes `sandbox=False`. The pipe is drained by then, so that log line
+   is the only surviving copy of the real reason.
+
+Cancelling mid-launch also leaves the `Popen` unwaited, so the dead Chrome stays
+`<defunct>`: one leaked zombie per failed launch (reproduced, 1 → 2 from a single
+cancellation).
+
+`src/launch.py` fixes all three. A launch now:
+
+- **refuses up front** when a headed launch has no X server to launch into —
+  `$DISPLAY` is *connected to*, not merely read, because a stale socket file
+  passes every existence check;
+- **watches the child process** while zendriver's connect loop runs, so death is
+  noticed in one poll interval rather than at the end of a fixed loop;
+- **finishes inside the tool budget** (`tool timeout − 5 s`, the cost of
+  reporting), so the error is delivered rather than cancelled;
+- **terminates and waits for** the child on every failure path, leaving no
+  zombie and no temporary profile;
+- **quotes Chrome verbatim** and adds an interpretation only for signatures it
+  recognises (dead display, stale `SingletonLock`, blocked sandbox, small
+  `/dev/shm`, OOM kill). The interpretation is the part most likely to be wrong;
+  the raw stderr is what lets a reader catch it.
+
+The same case now reports in **0.3 s** instead of timing out at 25:
+
+```
+Chrome exited during startup (exit code 1). No X server was reachable at
+$DISPLAY=':99' -- start one (e.g. `Xvfb :99 -screen 0 1920x1080x24 &`) or call
+start_browser with headless=true.
+
+Chrome said:
+[…:ERROR:ui/ozone/platform/x11/ozone_platform_x11.cc:257] Missing X server or $DISPLAY
+[…:ERROR:ui/aura/env.cc:246] The platform failed to initialize.  Exiting.
+```
+
+| variable | effect |
+| --- | --- |
+| `ZENDRIVER_MCP_LAUNCH_TIMEOUT` | seconds a launch may take. Default `ZENDRIVER_MCP_TOOL_TIMEOUT − 5`; raise **both** together or the diagnosis goes back to being unreachable |
+| `ZENDRIVER_MCP_SKIP_DISPLAY_CHECK=1` | skip the pre-flight probe and let Chrome decide. The watchdog still applies — the probe is a shortcut, never the only guard |
+
 ## Token Optimization Protocol
 
 ### The Problem

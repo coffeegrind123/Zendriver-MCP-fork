@@ -1,3 +1,4 @@
 zendriver>=0.14.0
+asyncio-atexit>=1.0
 mcp>=1.9,<2
 Pillow>=10.0.0

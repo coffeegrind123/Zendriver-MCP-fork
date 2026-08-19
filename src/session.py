@@ -14,8 +14,21 @@ import zendriver as zd
 from zendriver import cdp
 
 from src.errors import BrowserNotStartedError, PageNotLoadedError
+from src.launch import (
+    connection_max_tries,
+    launch_budget,
+    launch_supervised,
+    preflight_display,
+    tool_timeout_budget,
+)
 
 logger = logging.getLogger(__name__)
+
+# Slow container Chrome can take several seconds to open the CDP port, so each
+# connect attempt waits a full second rather than zendriver's default 0.25s.
+BROWSER_CONNECTION_TIMEOUT = 1.0
+
+__all__ = ["BrowserSession", "ResetCallback", "tool_timeout_budget"]
 
 # A reset callback is invoked on every stop_browser to clear any
 # session-bound state a tool was holding (interception handlers,
@@ -261,6 +274,12 @@ class BrowserSession:
     ) -> zd.Browser:
         """Start the browser with configuration."""
         if self._browser is None:
+            # Before spawning anything, and before the extension provisioning
+            # below can go to the network: a headed launch with no reachable
+            # X server is the failure this whole path used to report as a
+            # timeout. See src/launch.py for the measurements.
+            preflight_display(headless)
+
             args = list(browser_args or [])
 
             # Opt-in only: these are needed on root/container hosts (tiny /dev/shm
@@ -305,17 +324,30 @@ class BrowserSession:
                     args.append(f"--proxy-server={proxy_host}:{proxy_port}")
 
             exe = browser_executable_path or self.default_browser_path
-            self._browser = await zd.start(
-                headless=headless,
+
+            # Not zd.start(): it builds the Browser internally and only returns
+            # it once the connect loop is over, so there is no way to watch the
+            # child process while it runs. launch_supervised() constructs the
+            # Browser first, then supervises the same start() -- see src/launch.py
+            # for what that buys and what it cost to find out.
+            budget = launch_budget()
+            config = zd.Config(
                 user_data_dir=user_data_dir,
-                browser_args=args if args else None,
+                headless=headless,
                 browser_executable_path=exe,
+                browser_args=args if args else None,
                 sandbox=False,
                 # Slow container Chrome can take several seconds to open the CDP
                 # port; zendriver's default (0.25s x 10 = 2.5s) gives up too early.
-                browser_connection_timeout=1.0,
-                browser_connection_max_tries=40,
+                # The try count is derived so the loop cannot outlive the budget:
+                # a connect loop that runs past the tool timeout gets cancelled
+                # before it can report anything, which is silence, not an error.
+                browser_connection_timeout=BROWSER_CONNECTION_TIMEOUT,
+                browser_connection_max_tries=connection_max_tries(
+                    budget, BROWSER_CONNECTION_TIMEOUT
+                ),
             )
+            self._browser = await launch_supervised(config, budget)
 
             self._loaded_extensions = []
             await self._load_extensions(ext_dirs)

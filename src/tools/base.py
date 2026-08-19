@@ -16,7 +16,7 @@ from src.errors import (
     ToolTimeoutError,
     ZendriverMCPError,
 )
-from src.session import BrowserSession
+from src.session import BrowserSession, tool_timeout_budget
 
 # How long a single JavaScript evaluation may take before it is called hung.
 # Generous enough for a heavy DOM walk, short enough to stay inside the MCP
@@ -25,13 +25,11 @@ from src.session import BrowserSession
 JS_TIMEOUT_SECONDS = 20.0
 
 
-def _default_tool_timeout() -> float:
-    raw = os.environ.get("ZENDRIVER_MCP_TOOL_TIMEOUT", "120")
-    try:
-        return max(1.0, float(raw))
-    except ValueError:
-        return 120.0
-
+# One definition of the tool budget, shared with the launch path: a Chrome
+# launch has to finish inside it or its diagnosis is cancelled before it can be
+# reported. Two copies of this number drifting apart is exactly how a dead
+# $DISPLAY reached a caller as a bare transport timeout.
+_default_tool_timeout = tool_timeout_budget
 
 DEFAULT_TOOL_TIMEOUT = _default_tool_timeout()
 

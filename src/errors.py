@@ -54,3 +54,25 @@ class LighthouseNotInstalledError(ZendriverMCPError):
 class AccessibilityUidError(ZendriverMCPError):
     # raised when a caller references an unknown or stale accessibility uid
     pass
+
+
+class BrowserLaunchError(ZendriverMCPError):
+    """Chrome was asked to start, tried, and died — with Chrome's own reason.
+
+    Distinct from ``BrowserNotStartedError`` ("nobody called start_browser")
+    and from ``ToolTimeoutError`` ("the tool ran too long"). Those two used to
+    absorb every launch failure between them, which is how a dead ``$DISPLAY``
+    reached a caller as a bare transport timeout: the one line that named the
+    cause went to a log file and the exception guessed at something else.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        returncode: int | None = None,
+        stderr: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.returncode = returncode
+        self.stderr = stderr
