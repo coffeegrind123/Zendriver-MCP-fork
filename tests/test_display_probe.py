@@ -108,7 +108,7 @@ def test_preflight_allows_a_headed_launch_when_a_display_answers(
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     monkeypatch.delenv("ZENDRIVER_MCP_SKIP_DISPLAY_CHECK", raising=False)
     monkeypatch.setenv("DISPLAY", f":{listening_display}")
-    preflight_display(headless=False)  # must not raise
+    preflight_display()  # must not raise
 
 
 def test_preflight_refuses_a_headed_launch_into_a_dead_display(
@@ -120,11 +120,15 @@ def test_preflight_refuses_a_headed_launch_into_a_dead_display(
     monkeypatch.setattr(sys, "platform", "linux")
 
     with pytest.raises(BrowserLaunchError) as caught:
-        preflight_display(headless=False)
+        preflight_display()
 
     message = str(caught.value)
     assert ":4242" in message, "the caller must be told which display was checked"
-    assert "Xvfb" in message and "headless=true" in message, "must name both ways out"
+    assert "Xvfb" in message, "the way out has to be named"
+    # There used to be a second way out — "or call start_browser with
+    # headless=true". Headless is now redirected to headed (src/launch.py), so
+    # offering it would send the caller to a flag that is ignored.
+    assert "headless=true" not in message
 
 
 def test_preflight_says_when_display_is_not_set_at_all(
@@ -136,19 +140,39 @@ def test_preflight_says_when_display_is_not_set_at_all(
     monkeypatch.setattr(sys, "platform", "linux")
 
     with pytest.raises(BrowserLaunchError) as caught:
-        preflight_display(headless=False)
+        preflight_display()
     assert "$DISPLAY is not set" in str(caught.value)
 
 
-def test_preflight_never_blocks_a_headless_launch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_headless_request_cannot_skip_the_display_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The old escape route, closed.
+
+    ``preflight_display`` used to return early for a headless launch, which was
+    correct while headless was a mode. It is not one any more — every launch is
+    headed — so the check applies to every launch, and the function no longer
+    takes a flag that could turn it off.
+    """
+    import inspect
+
+    from src.launch import resolve_headless
+
+    assert "headless" not in inspect.signature(preflight_display).parameters
+    assert resolve_headless(True) is False
+
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("ZENDRIVER_MCP_SKIP_DISPLAY_CHECK", raising=False)
     monkeypatch.setenv("DISPLAY", ":4242")
-    preflight_display(headless=True)
+    monkeypatch.setattr(sys, "platform", "linux")
+    with pytest.raises(BrowserLaunchError):
+        preflight_display()
 
 
 def test_preflight_stands_aside_under_wayland(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DISPLAY", ":4242")
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
-    preflight_display(headless=False)
+    preflight_display()
 
 
 def test_preflight_can_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -156,7 +180,7 @@ def test_preflight_can_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     monkeypatch.setenv("DISPLAY", ":4242")
     monkeypatch.setenv("ZENDRIVER_MCP_SKIP_DISPLAY_CHECK", "1")
-    preflight_display(headless=False)
+    preflight_display()
 
 
 def test_preflight_is_linux_only(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -164,4 +188,4 @@ def test_preflight_is_linux_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ZENDRIVER_MCP_SKIP_DISPLAY_CHECK", raising=False)
     monkeypatch.setenv("DISPLAY", ":4242")
     monkeypatch.setattr(sys, "platform", "darwin")
-    preflight_display(headless=False)
+    preflight_display()

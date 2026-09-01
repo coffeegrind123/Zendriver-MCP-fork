@@ -146,8 +146,8 @@ schema on the server (2.3 KB, ~570 tokens), and a client that only wants the
 common browse loop otherwise carries all of it to satisfy a precondition it has
 no decision to make about.
 
-Off by default, deliberately: a client that needs headless, a proxy, or a
-persistent profile must be able to call `start_browser` with its own arguments
+Off by default, deliberately: a client that needs a proxy or a persistent
+profile must be able to call `start_browser` with its own arguments
 before anything launches Chrome with defaults. `start_browser` itself is never
 auto-retried, so a failing launch reports the launch error rather than looping.
 
@@ -170,6 +170,41 @@ browse loop — were registered straight onto FastMCP rather than through
 session. Every tool now goes through the registrar; the emitted schemas are
 byte-identical before and after (verified by hashing `tools/list` across the
 change).
+
+## Headed only — a headless request is redirected, not honoured
+
+`headless=true` is accepted everywhere it always was, and ignored everywhere.
+Every launch is headed.
+
+This is not a preference. The browser exists to get past bot detection, and
+headless is the first thing that detection looks for: in `--headless=new`
+Cloudflare's Turnstile rejects the checkbox click outright, so the challenge
+never clears, `bypass_cloudflare` loops until the tool budget runs out, and the
+whole thing reports as *"Cloudflare is unbeatable on this site"* rather than
+*"the browser was launched wrong"*. One boolean on one tool call undoes every
+stealth measure in this server, and it is a boolean any script, recipe or model
+turn can flip by accident.
+
+So it is enforced at the launch layer — `resolve_headless()` in `src/launch.py`,
+applied inside `BrowserSession.start()`, which is the one point `start_browser`,
+`configure_proxy`, `clear_proxy` and the auto-start path all converge on. A
+policy that lives in a tool signature is a policy with three ways around it.
+
+The redirect is announced rather than silent: the request is logged to stderr,
+and a caller that asked for headless is told so in the reply —
+
+```
+Browser started in headed mode — headless was requested and ignored: this server
+launches Chrome headed only, because headless is what bot detection (Cloudflare
+Turnstile in particular) looks for. Run an X server -- e.g. `Xvfb :99 -screen 0
+1920x1080x24 &` with DISPLAY=:99 -- if this host has no display.
+```
+
+There is deliberately **no environment escape hatch**: a knob that re-enables
+headless is exactly how a script gets it back by accident. A host with no
+display is served by the pre-flight below, which names Xvfb — and no longer
+offers "pass `headless=true` instead", because that is now advice to flip a
+switch this server ignores.
 
 ## When Chrome will not start
 
@@ -224,8 +259,8 @@ The same case now reports in **0.3 s** instead of timing out at 25:
 
 ```
 Chrome exited during startup (exit code 1). No X server was reachable at
-$DISPLAY=':99' -- start one (e.g. `Xvfb :99 -screen 0 1920x1080x24 &`) or call
-start_browser with headless=true.
+$DISPLAY=':99' -- start one (e.g. `Xvfb :99 -screen 0 1920x1080x24 &`); this
+server launches headed only and has no headless fallback.
 
 Chrome said:
 […:ERROR:ui/ozone/platform/x11/ozone_platform_x11.cc:257] Missing X server or $DISPLAY

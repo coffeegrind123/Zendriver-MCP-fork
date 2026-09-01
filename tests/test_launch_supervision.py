@@ -179,7 +179,10 @@ def test_a_recognised_signature_is_named_as_well_as_quoted() -> None:
 
     message = str(caught.value)
     assert "no X server was reachable".lower() in message.lower()
-    assert "headless=true" in message  # the caller is told what to do instead
+    assert "Xvfb" in message  # the caller is told what to do instead
+    # Not "pass headless=true": headless requests are redirected to headed, so
+    # that advice would send the caller to a switch this server ignores.
+    assert "headless=true" not in message
 
 
 def test_an_unrecognised_death_is_reported_without_inventing_a_cause() -> None:

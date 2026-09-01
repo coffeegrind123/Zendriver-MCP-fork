@@ -30,7 +30,7 @@ server can collapse its surface to a tiny **search gateway** or a named
 A minimal agent loop:
 
 ```python
-await start_browser(headless=False)  # headed beats bot detection
+await start_browser()  # always headed: headless is redirected (it loses to bot detection)
 await navigate("https://example.com")
 print(await get_interaction_tree())  # numeric ids for every control
 await click("3")  # click by id

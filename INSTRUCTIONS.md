@@ -241,5 +241,6 @@ remove_element(selector=".cookie-banner")
 3. **Take screenshots for verification** - Visual confirmation helps
 4. **Handle errors gracefully** - Elements may not always exist
 5. **Be specific with selectors** - Avoid ambiguous matches
-6. **Use headless for speed** - `start_browser(headless=True)` when no visual needed
+6. **Do not ask for headless** - it is accepted and ignored; every launch is
+   headed, because headless is what Cloudflare and other bot detection look for
 7. **Clean up storage if needed** - `clear_storage()` between tests

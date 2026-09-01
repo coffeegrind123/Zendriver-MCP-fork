@@ -19,6 +19,7 @@ from src.launch import (
     launch_budget,
     launch_supervised,
     preflight_display,
+    resolve_headless,
     tool_timeout_budget,
 )
 
@@ -272,13 +273,21 @@ class BrowserSession:
         browser_executable_path: str | None = None,
         low_memory: bool = False,
     ) -> zd.Browser:
-        """Start the browser with configuration."""
+        """Start the browser with configuration.
+
+        ``headless`` is accepted and ignored -- every launch is headed. This is
+        the choke point every caller reaches (the two lifecycle tools, the two
+        proxy tools and the autostart path), which is why the policy is applied
+        here rather than in any of their signatures. See ``resolve_headless``.
+        """
         if self._browser is None:
+            headless = resolve_headless(headless)
+
             # Before spawning anything, and before the extension provisioning
             # below can go to the network: a headed launch with no reachable
             # X server is the failure this whole path used to report as a
             # timeout. See src/launch.py for the measurements.
-            preflight_display(headless)
+            preflight_display()
 
             args = list(browser_args or [])
 

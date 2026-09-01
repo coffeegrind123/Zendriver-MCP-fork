@@ -131,6 +131,58 @@ def connection_max_tries(budget: float, connection_timeout: float) -> int:
 
 
 # --------------------------------------------------------------------------
+# Headed-only policy
+# --------------------------------------------------------------------------
+#
+# Headless is not a mode this server offers. The reason is measured rather than
+# stylistic: the browser exists to get past bot detection, and headless is the
+# first thing that detection looks for. Cloudflare's Turnstile is the sharpest
+# case -- in --headless=new the checkbox click is rejected outright, so the
+# challenge never clears and the whole session stalls on a page that a headed
+# Chrome walks through. Every other stealth measure in this server is undone by
+# that one switch.
+#
+# So a headless request is not an error, it is a REDIRECT: the caller gets a
+# headed browser, and is told the switch was ignored rather than left to wonder
+# why its "headless" session has a window. Enforced here rather than in the tool
+# signatures because the tools are not the only caller -- the proxy restart path
+# and the autostart path both reach BrowserSession.start() directly, and a
+# policy that lives in one signature is a policy with three ways around it.
+#
+# There is deliberately NO environment escape hatch. A knob that re-enables
+# headless is exactly how a script gets it back by accident, which is the thing
+# this exists to prevent. A host with no display is served by the pre-flight
+# below, which names Xvfb.
+
+HEADED_ONLY_NOTE = (
+    "headless was requested and ignored: this server launches Chrome headed only, "
+    "because headless is what bot detection (Cloudflare Turnstile in particular) "
+    "looks for. Run an X server -- e.g. `Xvfb :99 -screen 0 1920x1080x24 &` with "
+    "DISPLAY=:99 -- if this host has no display."
+)
+
+
+def resolve_headless(requested: bool | None) -> bool:
+    """Always ``False``; say so out loud when something asked for ``True``.
+
+    The return value is the only headless decision in this codebase. Callers
+    pass whatever they were given and use what comes back -- including for the
+    message they report, so a caller that asked for headless is never told it
+    got it.
+    """
+    if requested:
+        # info, not warning, plus an explicit stderr line: with no logging
+        # configuration (a plain `python run.py`) a warning is picked up by
+        # logging's lastResort handler, which writes to stderr too -- and the
+        # caller reads the same sentence twice, which reads like two overrides.
+        # The print is the one that is guaranteed to be seen, and matches how
+        # the rest of this server announces itself.
+        logger.info("%s", HEADED_ONLY_NOTE)
+        print("[zendriver-mcp] " + HEADED_ONLY_NOTE, file=sys.stderr, flush=True)
+    return False
+
+
+# --------------------------------------------------------------------------
 # Pre-flight: is there a display to launch into at all?
 # --------------------------------------------------------------------------
 
@@ -173,14 +225,20 @@ def x_display_reachable(display: str) -> bool:
     return False
 
 
-def preflight_display(headless: bool) -> None:
-    """Refuse a headed launch when there is nothing to launch into.
+def preflight_display() -> None:
+    """Refuse a launch when there is nothing to launch into.
 
     Raises ``BrowserLaunchError`` rather than letting Chrome discover it: the
     supervised launch below would catch that too, but seconds later and after
     spawning a process, and this is the case that actually happens.
+
+    Takes no ``headless`` argument any more, and that absence is the point:
+    every launch is headed (see ``resolve_headless``), so there is no mode this
+    check can be skipped for. It used to be, and a caller told to "pass
+    headless=true instead" would now be told to do something that is silently
+    ignored -- a way out that no longer exists is worse than none.
     """
-    if headless or sys.platform != "linux":
+    if sys.platform != "linux":
         return
     if _flag("ZENDRIVER_MCP_SKIP_DISPLAY_CHECK"):
         return
@@ -199,8 +257,11 @@ def preflight_display(headless: bool) -> None:
     raise BrowserLaunchError(
         f"Chrome cannot start headed: no X server is reachable ({where}). "
         f"Start one -- e.g. `Xvfb {suggested} -screen 0 1920x1080x24 &` with "
-        f"DISPLAY={suggested} -- or call start_browser with headless=true. "
-        "Set ZENDRIVER_MCP_SKIP_DISPLAY_CHECK=1 to attempt the launch anyway."
+        f"DISPLAY={suggested}. There is no headless fallback on this server: "
+        "headless is what the bot detection this browser exists to get past "
+        "looks for, so a headless request is redirected to headed rather than "
+        "honoured. Set ZENDRIVER_MCP_SKIP_DISPLAY_CHECK=1 to attempt the launch "
+        "anyway."
     )
 
 
@@ -267,8 +328,8 @@ def diagnose(stderr: str, returncode: int | None) -> str | None:
         where = f"$DISPLAY={display!r}" if display else "$DISPLAY (unset)"
         return (
             f"no X server was reachable at {where} -- start one (e.g. "
-            f"`Xvfb {display or ':99'} -screen 0 1920x1080x24 &`) or call "
-            "start_browser with headless=true"
+            f"`Xvfb {display or ':99'} -screen 0 1920x1080x24 &`); this server "
+            "launches headed only and has no headless fallback"
         )
     if "singletonlock" in low or "processsingleton" in low or "profile appears to be in use" in low:
         return (

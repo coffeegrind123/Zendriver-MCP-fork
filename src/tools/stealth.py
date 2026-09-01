@@ -7,7 +7,9 @@ CDP mouse events until the challenge clears.
 
 NOTE: a HEADED browser is what actually beats Cloudflare for most sites (in --headless=new
 the click is rejected); these tools are the belt-and-suspenders for sites that still throw
-an interactive challenge even headed. (Ported from bituq/zendriver-mcp.)
+an interactive challenge even headed. That is why this server launches headed only and
+redirects any headless request (src/launch.py) — the click these tools make is exactly what
+headless breaks. (Ported from bituq/zendriver-mcp.)
 """
 
 from __future__ import annotations
@@ -74,7 +76,7 @@ class StealthTools(ToolBase):
         Call after landing on a page that shows "Just a moment"; check first with
         is_cloudflare_challenge_present to skip the click cycle when the page
         already passed. Requires a HEADED browser — in headless the click is
-        rejected, so start_browser with headless false. Returns 'Cloudflare
+        rejected, which is why this server never launches headless. Returns 'Cloudflare
         challenge solved', or raises CloudflareChallengeError if still challenged
         at timeout.
 

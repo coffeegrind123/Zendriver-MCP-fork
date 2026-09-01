@@ -7,7 +7,7 @@ then reuse the cookies on every subsequent run.
 ## First run - log in, save
 
 ```python
-await start_browser(headless=False)  # human needs to see the form
+await start_browser()  # headed, always — the human needs to see the form
 await navigate("https://example.com/login")
 # ... user types credentials, solves 2FA, clicks submit ...
 await wait_for_element("#dashboard", timeout=120)
@@ -21,7 +21,7 @@ including HTTP-only session tokens.
 ## Subsequent runs - reuse
 
 ```python
-await start_browser(headless=True)
+await start_browser()  # headed here too; the server has no headless mode
 await import_cookies("~/.sessions/example.json")
 await navigate("https://example.com/dashboard")
 # already logged in

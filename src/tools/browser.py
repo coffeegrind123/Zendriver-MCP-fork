@@ -3,6 +3,7 @@ from typing import Annotated
 
 from pydantic import Field
 
+from src.launch import HEADED_ONLY_NOTE
 from src.tools.base import ToolBase
 
 
@@ -20,7 +21,7 @@ class BrowserTools(ToolBase):
         headless: Annotated[
             bool,
             Field(
-                description="Run with no visible window. Default False (headed). Headed is what actually beats Cloudflare and most bot detection — prefer False on protected sites. Example: false"
+                description="Accepted and IGNORED — this server always launches headed. Headless is the first thing bot detection looks for (Cloudflare's Turnstile rejects the click outright), so true is redirected to headed and the reply says so. Example: false"
             ),
         ] = False,
         proxy: Annotated[
@@ -81,8 +82,11 @@ class BrowserTools(ToolBase):
             browser_args=browser_args or None,
         )
 
-        # build response message
-        mode = "headless" if headless else "headed"
+        # build response message. The mode is not a variable: the session
+        # forced it (src/launch.py, resolve_headless), and reporting the mode a
+        # caller ASKED for rather than the one it got is how a headless request
+        # turns into an hour of debugging a window that visibly exists.
+        mode = "headed"
         extras = []
         if proxy:
             extras.append(f"proxy={proxy}")
@@ -95,7 +99,8 @@ class BrowserTools(ToolBase):
         if device_scale_factor:
             extras.append(f"scale={device_scale_factor}")
         extra_info = f" ({', '.join(extras)})" if extras else ""
-        return f"Browser started in {mode} mode{extra_info}"
+        override = f" — {HEADED_ONLY_NOTE}" if headless else ""
+        return f"Browser started in {mode} mode{extra_info}{override}"
 
     async def stop_browser(self) -> str:
         """Stop the browser, close every tab, and release all session resources.
