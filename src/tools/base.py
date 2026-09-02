@@ -12,6 +12,7 @@ from mcp.server.fastmcp import FastMCP
 
 from src.errors import (
     BrowserNotStartedError,
+    BrowserUnreachableError,
     ElementNotFoundError,
     ToolTimeoutError,
     ZendriverMCPError,
@@ -150,7 +151,21 @@ class ToolBase(ABC):
             try:
                 return await asyncio.wait_for(fn(*args, **kwargs), timeout=budget)
             except asyncio.TimeoutError as exc:
-                raise _timeout_error(name, budget, time.monotonic() - started, exc) from exc
+                err = _timeout_error(name, budget, time.monotonic() - started, exc)
+                # A wedged Chrome shows up HERE and nowhere else. The recovery
+                # below only runs from `except Exception`, so a browser that hangs
+                # instead of exiting never reaches it: is_dead() is
+                # `browser.stopped`, and a hung process has not stopped. Measured
+                # 2026-09-02 -- a crashpad ptrace deadlock left the DevTools port
+                # accepting connections and answering nothing for 22 hours while
+                # every call returned this same timeout and nothing self-healed.
+                # Probing the endpoint is what tells "slow" from "gone".
+                if isinstance(err, ToolTimeoutError):
+                    if await self._session.discard_if_unreachable():
+                        raise BrowserUnreachableError(
+                            name, budget, AUTOSTART_BROWSER
+                        ) from exc
+                raise err from exc
             except BrowserNotStartedError:
                 # Retried once, and only once: if the browser still is not there
                 # after a start, something is wrong with the launch and the

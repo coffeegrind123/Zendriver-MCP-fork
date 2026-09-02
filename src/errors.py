@@ -34,6 +34,25 @@ class ToolTimeoutError(ZendriverMCPError):
         self.timeout = timeout
 
 
+class BrowserUnreachableError(ZendriverMCPError):
+    # raised when a tool's budget ran out AND Chrome no longer answers CDP, i.e.
+    # the browser is alive but wedged. Distinct from ToolTimeoutError, which says
+    # only "this call was slow" and is what a 22-hour outage reported instead.
+    def __init__(self, tool: str, timeout: float, will_autostart: bool):
+        nxt = (
+            "The next call starts a fresh one."
+            if will_autostart
+            else "Call start_browser for a fresh one."
+        )
+        super().__init__(
+            f"Tool '{tool}' hit its {timeout:.0f}s budget and Chrome stopped answering "
+            f"CDP — the process was still alive but wedged, so the dead session has "
+            f"been discarded. {nxt}"
+        )
+        self.tool = tool
+        self.timeout = timeout
+
+
 class CloudflareChallengeError(ZendriverMCPError):
     # raised when a Cloudflare interactive (Turnstile) challenge could not be solved
     def __init__(self, message: str = "Could not solve the Cloudflare challenge in time."):

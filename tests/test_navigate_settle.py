@@ -26,6 +26,7 @@ wait precisely when the wait is needed.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from src.session import BrowserSession
@@ -202,3 +203,67 @@ def test_wait_for_document_ready_reports_both_outcomes() -> None:
     assert ready is True
     never, _ = asyncio.run(_FakeSession(ready_after=None).wait_for_document_ready(timeout=0.3))
     assert never is False
+
+
+# --- the deadline has to bound the evaluate, not just the loop around it ---
+#
+# Measured 2026-09-02: `navigate(settle=3)` returned "exceeded its 25s time
+# budget". `settle` was never the cap. wait_for_document_ready() tested its
+# deadline BETWEEN iterations, so a single `page.evaluate("document.readyState")`
+# that never returns makes the deadline unreachable and the call runs until the
+# tool budget cancels it. run_js() already wraps evaluate in asyncio.wait_for for
+# exactly this reason; this path called page.evaluate directly and bypassed it.
+
+
+class _HangingPage:
+    """A page whose readyState evaluation never comes back.
+
+    Not hypothetical: a Chrome wedged behind a crashpad ptrace deadlock accepts
+    the CDP request and answers nothing, so the await simply never resolves.
+    """
+
+    def __init__(self) -> None:
+        self.evaluations = 0
+
+    async def evaluate(self, _script: str) -> str:
+        self.evaluations += 1
+        await asyncio.sleep(3600)
+        raise AssertionError("unreachable")
+
+    async def wait(self, _t: float = 0.1) -> None:
+        return None
+
+
+class _HangingSession:
+    """Borrows the real method, like _FakeSession above.
+
+    Subclassing BrowserSession would not work: it is a singleton whose __new__
+    hands back the shared instance, so the subclass's own state never arrives.
+    """
+
+    wait_for_document_ready = BrowserSession.wait_for_document_ready
+
+    def __init__(self) -> None:
+        self.page = _HangingPage()
+
+
+def test_a_hung_evaluate_still_honours_the_settle_deadline() -> None:
+    session = _HangingSession()
+    started = time.monotonic()
+    ready, elapsed = asyncio.run(session.wait_for_document_ready(timeout=0.4))
+    wall = time.monotonic() - started
+
+    assert ready is False, "a page that never answers must not be reported ready"
+    # The whole point: it comes back at the deadline instead of hanging until the
+    # tool budget cancels it. Generous upper bound so this cannot flake on a
+    # loaded box, but far below the 25s that was actually observed.
+    assert wall < 5.0, f"wait_for_document_ready hung for {wall:.1f}s despite timeout=0.4"
+    assert elapsed >= 0.4
+    assert session.page.evaluations >= 1, "it must have actually tried"
+
+
+def test_a_zero_deadline_does_not_start_an_unbounded_evaluate() -> None:
+    session = _HangingSession()
+    ready, _ = asyncio.run(session.wait_for_document_ready(timeout=0))
+    assert ready is False
+    assert session.page.evaluations == 0

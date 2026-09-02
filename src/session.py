@@ -1,6 +1,7 @@
 # Browser session management for Zendriver MCP server.
 # Includes CDP event listeners for network and console logging.
 
+import asyncio
 import logging
 import os
 import sys
@@ -29,12 +30,42 @@ logger = logging.getLogger(__name__)
 # connect attempt waits a full second rather than zendriver's default 0.25s.
 BROWSER_CONNECTION_TIMEOUT = 1.0
 
+# How long the liveness probe waits for Chrome's DevTools HTTP endpoint to say
+# anything at all. Short on purpose: it runs on a call that has ALREADY spent its
+# whole budget, and the failure it looks for is not a slow answer but no answer.
+CDP_PROBE_TIMEOUT = 2.0
+
 __all__ = ["BrowserSession", "ResetCallback", "tool_timeout_budget"]
 
 # A reset callback is invoked on every stop_browser to clear any
 # session-bound state a tool was holding (interception handlers,
 # accessibility uid tables, trace buffers, screencast handles, ...).
 ResetCallback = Callable[[], None]
+
+
+async def _cdp_answers(host: str, port: int) -> bool:
+    """Did Chrome's DevTools HTTP endpoint send us a status line?
+
+    Raw sockets rather than an HTTP client because the failure being detected is
+    a connection that OPENS and then stays silent — every client library models
+    that as "still waiting", which is exactly the answer that was useless for 22
+    hours. Reading one line is enough: bytes arriving at all means the browser's
+    main thread is running its message loop.
+    """
+    reader, writer = await asyncio.open_connection(host, port)
+    try:
+        writer.write(
+            f"GET /json/version HTTP/1.1\r\nHost: {host}:{port}\r\n"
+            f"Connection: close\r\n\r\n".encode()
+        )
+        await writer.drain()
+        return (await reader.readline()).startswith(b"HTTP/")
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:  # a half-dead socket must not mask the verdict
+            pass
 
 
 class BrowserSession:
@@ -111,6 +142,60 @@ class BrowserSession:
         failing until someone notices.
         """
         return self._browser is not None and self._browser.stopped
+
+    async def is_unreachable(self, timeout: float = CDP_PROBE_TIMEOUT) -> bool:
+        """True when a browser we still hold no longer answers CDP.
+
+        ``is_dead()`` asks a different question — whether the Chrome process
+        EXITED — and a hang is not an exit. Measured 2026-09-02 in the pi
+        container: Chrome's GPU process crashed, ``chrome_crashpad_handler``
+        ptrace-attached to snapshot it and never finished, and the browser's main
+        thread blocked in ``anon_pipe_write`` behind the same stuck handler. The
+        DevTools port then ACCEPTED every TCP connection and sent zero bytes,
+        forever — ``curl /json/version`` returned nothing in 22 s, and one caller
+        waited 1859 s. ``browser.stopped`` was False the whole time, because the
+        process was alive, so nothing upstream ever considered it broken and every
+        tool call timed out identically for 22 hours.
+
+        The discriminator is the endpoint, not the process. A refused connection
+        (Chrome gone) and a silent one (Chrome wedged) both answer True here; a
+        real HTTP status line answers False.
+
+        Deliberately conservative: when the browser's websocket URL cannot be
+        parsed we return False rather than claim it is broken, because discarding
+        a healthy session costs a relaunch and a lost tab.
+        """
+        browser = self._browser
+        if browser is None:
+            return False
+        if browser.stopped:
+            return True
+        url = getattr(browser, "websocket_url", None)
+        if not url:
+            return False
+        parsed = urlparse(url)
+        host, port = parsed.hostname, parsed.port
+        if not host or not port:
+            return False
+        try:
+            return not await asyncio.wait_for(_cdp_answers(host, port), timeout=timeout)
+        except (asyncio.TimeoutError, TimeoutError, OSError):
+            return True
+
+    async def discard_if_unreachable(self, timeout: float = CDP_PROBE_TIMEOUT) -> bool:
+        """Drop a wedged browser so the NEXT call is not the same 25s timeout.
+
+        Returns whether anything was discarded. Separate from ``discard()`` so the
+        caller can say in its error message that this happened.
+        """
+        if not await self.is_unreachable(timeout):
+            return False
+        logger.warning(
+            "Chrome is alive but no longer answering CDP; discarding the session "
+            "so the next call starts a fresh browser"
+        )
+        self.discard()
+        return True
 
     def discard(self) -> None:
         """Drop a dead browser's state without touching the dead process.
@@ -622,8 +707,24 @@ class BrowserSession:
         """
         start = time.monotonic()
         while True:
+            # BOUND THE EVALUATE, not just the loop. The deadline below is only
+            # tested BETWEEN iterations, so a single evaluate that never returns
+            # makes `timeout` unreachable and the caller's `settle` meaningless --
+            # the call then runs until the tool budget cancels it, which is how a
+            # 3-second settle produced a 25-second timeout. run_js() already
+            # guards evaluate for exactly this reason (see its docstring); this
+            # path called page.evaluate directly and bypassed it.
+            remaining = timeout - (time.monotonic() - start)
+            if remaining <= 0:
+                return False, time.monotonic() - start
             try:
-                state = await self.page.evaluate("document.readyState")
+                state = await asyncio.wait_for(
+                    self.page.evaluate("document.readyState"), timeout=remaining
+                )
+            except (asyncio.TimeoutError, TimeoutError):
+                # Out of time inside the evaluate, so the deadline is reached by
+                # definition; reporting it here keeps the caller's contract.
+                return False, time.monotonic() - start
             except Exception:
                 # Mid-navigation the context can be torn down; that is not a
                 # failure, it is the page being replaced. Try again.

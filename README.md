@@ -272,6 +272,54 @@ Chrome said:
 | `ZENDRIVER_MCP_LAUNCH_TIMEOUT` | seconds a launch may take. Default `ZENDRIVER_MCP_TOOL_TIMEOUT − 5`; raise **both** together or the diagnosis goes back to being unreachable |
 | `ZENDRIVER_MCP_SKIP_DISPLAY_CHECK=1` | skip the pre-flight probe and let Chrome decide. The watchdog still applies — the probe is a shortcut, never the only guard |
 
+## When Chrome stops answering without stopping
+
+A launch that fails is loud. A browser that *wedges* was silent for 22 hours.
+
+Measured 2026-09-02 in a container running this server. Chrome's GPU process
+crashed; `chrome_crashpad_handler` ptrace-attached to snapshot it and never
+finished, leaving the GPU process in `State: t (tracing stop)` with `TracerPid`
+pointing at the handler — while both the handler and the browser's **main
+thread** blocked in `wchan: anon_pipe_write` behind the same stuck pipe. The
+browser's main thread is what serves DevTools, so the remote-debugging port kept
+accepting TCP connections and sent nothing at all:
+
+```
+curl /json/version  ->  timed out after 22000 ms with 0 bytes received
+curl /json/list     ->  timed out after 35000 ms with 0 bytes received
+```
+
+One caller waited 1859 s.
+
+Nothing recovered it, for a specific reason. `BrowserSession.is_dead()` is
+`browser.stopped` — *did the Chrome process exit* — and this one had not. The
+self-heal in `ToolBase._register` is gated on that, and it only runs from
+`except Exception` anyway; a wedged browser produces an `asyncio.TimeoutError`
+from the tool's own budget, which never reached it. So every call returned the
+same `Tool 'navigate' exceeded its 25s time budget` and the session stayed broken
+until someone killed Chrome by hand.
+
+Two changes:
+
+- **The endpoint is the liveness test, not the process.** On a genuine budget
+  overrun the server now probes `GET /json/version` on the browser's own port
+  with a short, separate timeout. A refused connection *and* a silent one both
+  mean gone; a status line means alive. A wedged session is discarded, so the
+  next call starts clean instead of repeating the timeout, and the error says
+  `Chrome stopped answering CDP … the dead session has been discarded` rather
+  than blaming the clock.
+- **`settle` bounds the evaluate, not just the loop around it.**
+  `wait_for_document_ready` tested its deadline only *between*
+  `page.evaluate("document.readyState")` calls, so one evaluate that never
+  returned made the deadline unreachable — which is how `navigate(settle=3)`
+  produced a 25 s timeout. `run_js()` had guarded evaluate for exactly this
+  reason since 2026-08-17; this path called `page.evaluate` directly and bypassed
+  it.
+
+The probe deliberately fails toward *leave it alone*: an unparseable websocket
+URL, or no browser at all, is not reported as unreachable. Discarding a healthy
+session costs a relaunch and a live tab.
+
 ## Token Optimization Protocol
 
 ### The Problem
