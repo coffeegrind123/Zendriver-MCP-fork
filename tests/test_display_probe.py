@@ -5,13 +5,21 @@ from an Xvfb that died weeks earlier, with ``DISPLAY=:99`` exported and nothing
 listening. Every existence check -- the variable, the socket file -- says yes;
 Chrome exits instantly saying "Missing X server or $DISPLAY". So the probe has
 to actually connect, and these tests pin that distinction from both sides.
+
+Connecting is not enough either (2026-10-25): an Xvfb up for 12 days on :99
+went on accepting connections and never answered one. The socket check passed,
+Chrome blocked on the X handshake, and start_browser spent its whole 115s
+budget on a launch that could never finish. So the probe completes the X11
+connection setup, and a listener that says nothing is a dead display too.
 """
 
 from __future__ import annotations
 
 import os
 import socket
+import struct
 import sys
+import threading
 
 import pytest
 
@@ -35,9 +43,52 @@ def _free_display() -> int:
     pytest.skip("no free display number")
 
 
+# An X server's reply to a connection setup request: status byte 1 (Success),
+# an unused byte, then protocol major/minor (11.0) and the length of the rest
+# in 4-byte units. The probe only needs this 8-byte prefix.
+X_SETUP_SUCCESS = struct.pack("<BxHHH", 1, 11, 0, 0)
+
+
+@pytest.fixture
+def answering_display():
+    """A socket that answers the X11 connection setup like a live server."""
+    number = _free_display()
+    path = f"{X11_DIR}/X{number}"
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.bind(path)
+    sock.listen(4)
+    stop = threading.Event()
+
+    def serve() -> None:
+        sock.settimeout(0.2)
+        while not stop.is_set():
+            try:
+                conn, _ = sock.accept()
+            except OSError:
+                continue
+            with conn:
+                conn.settimeout(2)
+                try:
+                    conn.recv(12)  # the client's setup request
+                    conn.sendall(X_SETUP_SUCCESS)
+                except OSError:
+                    pass
+
+    worker = threading.Thread(target=serve, daemon=True)
+    worker.start()
+    try:
+        yield number
+    finally:
+        stop.set()
+        worker.join(2)
+        sock.close()
+        if os.path.exists(path):
+            os.unlink(path)
+
+
 @pytest.fixture
 def listening_display():
-    """A socket that accepts connections where an X server's would be."""
+    """A socket that accepts connections and never says a word -- a wedged X server."""
     number = _free_display()
     path = f"{X11_DIR}/X{number}"
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -67,9 +118,26 @@ def stale_display():
 
 
 @needs_x11_dir
-def test_a_listening_display_is_reachable(listening_display: int) -> None:
-    assert x_display_reachable(f":{listening_display}")
-    assert x_display_reachable(f":{listening_display}.0"), "screen suffix must be tolerated"
+def test_an_answering_display_is_reachable(answering_display: int) -> None:
+    assert x_display_reachable(f":{answering_display}")
+    assert x_display_reachable(f":{answering_display}.0"), "screen suffix must be tolerated"
+
+
+@needs_x11_dir
+def test_a_display_that_accepts_but_never_answers_is_not_reachable(listening_display: int) -> None:
+    """The 2026-10-25 outage: connect() succeeds, the handshake never completes."""
+    assert not x_display_reachable(f":{listening_display}"), (
+        "a connect-only check passes here -- that is the bug"
+    )
+
+
+@needs_x11_dir
+def test_the_handshake_probe_is_bounded(listening_display: int) -> None:
+    import time
+
+    started = time.monotonic()
+    x_display_reachable(f":{listening_display}")
+    assert time.monotonic() - started < 5, "a wedged server must not stall the probe"
 
 
 @needs_x11_dir
@@ -103,12 +171,28 @@ def test_a_remote_display_that_refuses_connections_is_not_reachable() -> None:
 
 @needs_x11_dir
 def test_preflight_allows_a_headed_launch_when_a_display_answers(
+    answering_display: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("ZENDRIVER_MCP_SKIP_DISPLAY_CHECK", raising=False)
+    monkeypatch.setenv("DISPLAY", f":{answering_display}")
+    preflight_display()  # must not raise
+
+
+@needs_x11_dir
+def test_preflight_names_a_wedged_display_as_wedged(
     listening_display: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     monkeypatch.delenv("ZENDRIVER_MCP_SKIP_DISPLAY_CHECK", raising=False)
     monkeypatch.setenv("DISPLAY", f":{listening_display}")
-    preflight_display()  # must not raise
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    with pytest.raises(BrowserLaunchError) as caught:
+        preflight_display()
+    message = str(caught.value)
+    assert "not answering" in message, message
+    assert "restart" in message.lower(), "the way out for a wedged server is a restart"
 
 
 def test_preflight_refuses_a_headed_launch_into_a_dead_display(

@@ -187,42 +187,77 @@ def resolve_headless(requested: bool | None) -> bool:
 # --------------------------------------------------------------------------
 
 
-def x_display_reachable(display: str) -> bool:
-    """Actually connect to ``$DISPLAY`` instead of trusting that it is set.
+# X11 connection setup (X Window System Protocol, "Connection Setup"): byte
+# order 'l' (little-endian), an unused byte, protocol 11.0, then zero-length
+# authorization name and data. The server answers with a status byte -- 0
+# Failed, 1 Success, 2 Authenticate -- and any of the three is a server that is
+# alive. Only silence (or EOF, or garbage) means it is not.
+X11_SETUP_REQUEST = b"l\x00" + (11).to_bytes(2, "little") + (0).to_bytes(2, "little") + bytes(6)
+X11_SETUP_STATUSES = {0, 1, 2}
 
-    A set-but-dead DISPLAY is the most common way Chrome dies instantly on a
-    container host: the variable looks configured, Xvfb is not running, and
-    Chrome exits before it has opened anything. The probe costs microseconds
-    and is the difference between an immediate sentence and a 25-second
-    silence.
+# Seconds for connect + handshake. A live Xvfb answers in well under a
+# millisecond; the wedged one never does, and this is what bounds the wait.
+X11_PROBE_TIMEOUT_SECONDS = 2.0
+
+
+def x_display_problem(display: str) -> str | None:
+    """Why ``$DISPLAY`` cannot take a Chrome window, or ``None`` if it can.
+
+    Connects AND completes the X11 connection setup. Measured 2026-10-25: an
+    Xvfb up for 12 days on :99 kept accepting connections and never answered
+    one, so a connect-only check passed, Chrome blocked on the handshake, and
+    start_browser spent its whole 115s budget on a launch that could never
+    finish. Returns ``"not listening"`` (nothing there: start one),
+    ``"not answering"`` (something accepted and said nothing: restart it), or
+    ``"malformed"``.
     """
     if ":" not in display:
-        return False
+        return "malformed"
     host, _, tail = display.rpartition(":")
     screen = tail.split(".")[0]
     if not screen.isdigit():
-        return False
+        return "malformed"
     number = int(screen)
 
     if host and host != "unix":
         try:
-            with socket.create_connection((host, 6000 + number), timeout=1.0):
-                return True
+            sock = socket.create_connection(
+                (host, 6000 + number), timeout=X11_PROBE_TIMEOUT_SECONDS
+            )
         except OSError:
-            return False
+            return "not listening"
+        return _x11_handshake(sock)
 
     path = f"/tmp/.X11-unix/X{number}"
     for address in (path, "\0" + path):  # filesystem socket, then Linux abstract
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            sock.settimeout(1.0)
+            sock.settimeout(X11_PROBE_TIMEOUT_SECONDS)
             sock.connect(address)
-            return True
         except OSError:
-            continue
-        finally:
             sock.close()
-    return False
+            continue
+        return _x11_handshake(sock)
+    return "not listening"
+
+
+def _x11_handshake(sock: socket.socket) -> str | None:
+    """Send the setup request on a connected socket; close it either way."""
+    with sock:
+        try:
+            sock.settimeout(X11_PROBE_TIMEOUT_SECONDS)
+            sock.sendall(X11_SETUP_REQUEST)
+            reply = sock.recv(8)
+        except OSError:  # includes socket.timeout
+            return "not answering"
+    if not reply or reply[0] not in X11_SETUP_STATUSES:
+        return "not answering"
+    return None
+
+
+def x_display_reachable(display: str) -> bool:
+    """True when an X server on ``display`` completes the connection setup."""
+    return x_display_problem(display) is None
 
 
 def preflight_display() -> None:
@@ -246,14 +281,24 @@ def preflight_display() -> None:
         return  # not X11; Chrome has a display, just not one we can probe
 
     display = os.environ.get("DISPLAY", "").strip()
-    if display and x_display_reachable(display):
+    problem = x_display_problem(display) if display else None
+    if display and problem is None:
         return
 
+    suggested = display or ":99"
+    if problem == "not answering":
+        raise BrowserLaunchError(
+            f"Chrome cannot start headed: the X server on $DISPLAY={display!r} accepts "
+            f"connections but is not answering the X11 handshake (no reply in "
+            f"{X11_PROBE_TIMEOUT_SECONDS:g}s), so Chrome would hang on it. The server is "
+            f"wedged: restart it -- kill that Xvfb, then `Xvfb {suggested} -screen 0 "
+            "1920x1080x24 &`. Check with `xdpyinfo -display "
+            f"{suggested}`. Set ZENDRIVER_MCP_SKIP_DISPLAY_CHECK=1 to attempt the launch anyway."
+        )
     if display:
         where = f"$DISPLAY={display!r} is set but nothing is listening on it"
     else:
         where = "$DISPLAY is not set"
-    suggested = display or ":99"
     raise BrowserLaunchError(
         f"Chrome cannot start headed: no X server is reachable ({where}). "
         f"Start one -- e.g. `Xvfb {suggested} -screen 0 1920x1080x24 &` with "
